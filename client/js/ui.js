@@ -330,14 +330,24 @@ window.__openAuth = openAuthModal;
 
 async function handleLogin(e) {
   e.preventDefault();
+  console.log('Login attempt started');
   const email = $('login-email').value.trim();
   const password = $('login-password').value;
   const errEl = $('login-error');
   errEl.classList.remove('show');
 
-  if (!email || !password) { errEl.textContent = 'Completa todos los campos.'; errEl.classList.add('show'); return; }
+  if (!email || !password) {
+    errEl.textContent = 'Completa todos los campos.';
+    errEl.classList.add('show');
+    return;
+  }
 
-  const btn = e.target.querySelector('button[type="submit"]');
+  const btn = e.target.querySelector('button[type="submit"]') || $('btn-login-submit');
+  if (!btn) {
+    console.error('Login button not found');
+    return;
+  }
+
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Ingresando...';
 
@@ -363,10 +373,20 @@ async function handleRegister(e) {
   const errEl = $('register-error');
   errEl.classList.remove('show');
 
-  if (!email || !password) { errEl.textContent = 'Completa todos los campos.'; errEl.classList.add('show'); return; }
-  if (password.length < 6) { errEl.textContent = 'La contraseña debe tener al menos 6 caracteres.'; errEl.classList.add('show'); return; }
+  if (!email || !password) {
+    errEl.textContent = 'Completa todos los campos.';
+    errEl.classList.add('show');
+    return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+    errEl.classList.add('show');
+    return;
+  }
 
   const btn = e.target.querySelector('button[type="submit"]');
+  if (!btn) return;
+
   btn.disabled = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Registrando...';
 
