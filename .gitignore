@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.npm
+dist/
+build/
+
+# Environment variables (Secrets)
+.env
+.env.local
+.env.*.local
+
+# Firebase
+.firebase/
+firestore-debug.log
+ui-debug.log
+firebase-debug.log
+*.runtimeconfig.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

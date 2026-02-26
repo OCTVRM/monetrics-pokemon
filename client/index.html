@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monetrics Pokemon — TCG Price Tracker</title>
+  <meta name="description" content="Consulta precios de cartas Pokémon TCG en tiempo real. Crea y gestiona tus colecciones con valoración automática." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- ── NAVBAR ─────────────────────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <a class="navbar-brand" href="#search" id="nav-search">
+      <span class="brand-icon">⚡</span>
+      <span class="brand-text">Monetrics <span>Pokemon</span></span>
+    </a>
+
+    <div class="navbar-search">
+      <input type="search" id="nav-search-input" placeholder="Buscar carta Pokémon (nombre o número)..." autocomplete="off" />
+      <button class="search-btn" id="nav-search-btn" aria-label="Buscar">🔍</button>
+    </div>
+
+    <div class="navbar-actions">
+      <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
+
+      <!-- Guest actions -->
+      <div id="guest-actions" style="display:flex;gap:8px">
+        <button class="btn btn-outline" id="btn-login">Iniciar sesión</button>
+        <button class="btn btn-primary" id="btn-register">Registrarse</button>
+      </div>
+
+      <!-- Auth user actions -->
+      <div id="user-actions" style="display:none;align-items:center;gap:8px">
+        <div class="user-menu">
+          <button class="user-avatar-btn" id="user-avatar-btn" aria-label="Menú de usuario">👤</button>
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="user-info">
+              <div class="user-email" id="user-email-display">usuario@email.com</div>
+              <div class="user-label">Usuario registrado</div>
+            </div>
+            <button class="dropdown-item" onclick="location.hash='#decks'">📦 Mis Barajas</button>
+            <button class="dropdown-item danger" id="btn-logout">🚪 Cerrar sesión</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── MAIN CONTENT ───────────────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- HOME / HERO PAGE -->
+    <div class="page active" id="page-home">
+      <div class="hero">
+        <div class="hero-badge">⚡ TCG Price Tracker</div>
+        <h1>Precios de Cartas<br>Pokémon en Tiempo Real</h1>
+        <p>Consulta el valor de cualquier carta, crea colecciones y calcula automáticamente el valor de tu baraja.</p>
+
+        <div class="hero-search-bar">
+          <input type="search" id="hero-search-input" placeholder="Ej: Charizard, Pikachu, 4/102..." autocomplete="off" />
+          <button class="btn btn-primary btn-lg" id="hero-search-btn">Buscar carta</button>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat-item">
+            <div class="stat-value">100%</div>
+            <div class="stat-label">Datos en tiempo real</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">USD+CLP</div>
+            <div class="stat-label">Precios en dos monedas</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">∞</div>
+            <div class="stat-label">Barajas ilimitadas</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEARCH RESULTS PAGE -->
+    <div class="page" id="page-search-results">
+      <div id="search-results-section">
+        <div class="section-header" id="search-results-header">
+          <span class="section-title">🔍 Resultados</span>
+        </div>
+        <div class="cards-grid" id="search-results-grid">
+          <!-- Results injected by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- DECKS PAGE -->
+    <div class="page" id="page-decks">
+      <div class="section-header">
+        <div>
+          <div class="section-title">📦 Mis Barajas</div>
+          <div class="section-subtitle"><span id="deck-count">0</span> baraja(s) creada(s)</div>
+        </div>
+        <button class="btn btn-primary" id="btn-create-deck">＋ Nueva baraja</button>
+      </div>
+      <div class="decks-grid" id="decks-grid">
+        <!-- Decks injected by JS -->
+      </div>
+    </div>
+
+    <!-- DECK DETAIL PAGE -->
+    <div class="page" id="page-deck-detail">
+      <div class="back-row">
+        <button class="back-btn" id="btn-back-decks">← Volver a Barajas</button>
+      </div>
+      <div id="deck-detail-content">
+        <!-- Deck detail injected by JS -->
+      </div>
+    </div>
+
+  </main><!-- /.main-content -->
+</div><!-- /.app-wrapper -->
+
+<!-- ── TOAST CONTAINER ─────────────────────────────────────────────────────── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ── AUTH MODAL ─────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="auth-modal-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div class="modal-header">
+      <span class="modal-title" id="auth-modal-title">⚡ Monetrics Pokemon</span>
+      <button class="modal-close" id="auth-modal-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" id="modal-tab-login">Iniciar sesión</button>
+      <button class="modal-tab" id="modal-tab-register">Crear cuenta</button>
+    </div>
+
+    <!-- Login Panel -->
+    <div id="login-panel">
+      <form class="modal-body" id="login-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="login-email">Email</label>
+          <input class="form-input" type="email" id="login-email" placeholder="correo@ejemplo.com" required autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Contraseña</label>
+          <input class="form-input" type="password" id="login-password" placeholder="Tu contraseña" required autocomplete="current-password" />
+        </div>
+        <p class="form-error" id="login-error"></p>
+      </form>
+      <div class="modal-footer">
+        <button type="submit" form="login-form" class="btn btn-primary">Iniciar sesión</button>
+      </div>
+    </div>
+
+    <!-- Register Panel -->
+    <div id="register-panel" style="display:none">
+      <form class="modal-body" id="register-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="register-email">Email</label>
+          <input class="form-input" type="email" id="register-email" placeholder="correo@ejemplo.com" required autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-password">Contraseña</label>
+          <input class="form-input" type="password" id="register-password" placeholder="Mínimo 6 caracteres" required autocomplete="new-password" />
+        </div>
+        <p class="form-error" id="register-error"></p>
+      </form>
+      <div class="modal-footer">
+        <button type="submit" form="register-form" class="btn btn-primary">Crear cuenta</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CREATE DECK MODAL ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="deck-modal-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deck-modal-title">
+    <div class="modal-header">
+      <span class="modal-title" id="deck-modal-title">📦 Nueva Baraja</span>
+      <button class="modal-close" id="deck-modal-close" aria-label="Cerrar">×</button>
+    </div>
+    <form class="modal-body" id="deck-form" novalidate>
+      <div class="form-group">
+        <label class="form-label" for="deck-nombre">Nombre de la baraja *</label>
+        <input class="form-input" type="text" id="deck-nombre" placeholder="Ej: Mi colección base" required maxlength="60" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="deck-descripcion">Descripción (opcional)</label>
+        <textarea class="form-input" id="deck-descripcion" placeholder="Descripción de tu baraja..." maxlength="200"></textarea>
+      </div>
+    </form>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline" id="deck-modal-cancel" onclick="document.getElementById('deck-modal-overlay').classList.remove('open')">Cancelar</button>
+      <button type="submit" form="deck-form" class="btn btn-primary">＋ Crear baraja</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DECK SELECTOR MODAL ────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="deck-selector-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deck-selector-title">
+    <div class="modal-header">
+      <span class="modal-title" id="deck-selector-title">📦 Seleccionar baraja</span>
+      <button class="modal-close" id="deck-selector-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">¿A qué baraja quieres agregar esta carta?</p>
+      <div class="deck-selector-list" id="deck-selector-list">
+        <!-- Deck options injected by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CARD DETAIL MODAL (placeholder) ───────────────────────────────────── -->
+<div class="modal-overlay" id="card-modal-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="card-modal-title">
+    <div class="modal-header">
+      <span class="modal-title" id="card-modal-title">🃏 Detalle de carta</span>
+      <button class="modal-close" id="card-modal-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" id="card-modal-body">
+      <!-- Card detail injected by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ── SCRIPTS ─────────────────────────────────────────────────────────────── -->
+<script type="module">
+  import { init } from './js/ui.js';
+  init();
+</script>
+
+</body>
+</html>
