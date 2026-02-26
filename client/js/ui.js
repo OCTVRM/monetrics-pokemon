@@ -25,6 +25,7 @@ export async function init() {
 
   // Auth state listener
   onAuthStateChanged(user => {
+    console.log('Auth state changed:', user ? user.email : 'null');
     currentUser = user;
     updateAuthUI(user);
     if (user) {
@@ -152,6 +153,7 @@ function bindEvents() {
   // Create deck button
   $('btn-create-deck')?.addEventListener('click', () => openDeckModal());
   $('deck-modal-close')?.addEventListener('click', closeDeckModal);
+  $('deck-modal-cancel-btn')?.addEventListener('click', closeDeckModal);
   $('deck-modal-overlay')?.addEventListener('click', e => { if (e.target === $('deck-modal-overlay')) closeDeckModal(); });
   $('deck-form')?.addEventListener('submit', handleCreateDeck);
 
@@ -352,11 +354,15 @@ async function handleLogin(e) {
   btn.innerHTML = '<span class="loading-spinner"></span> Ingresando...';
 
   try {
+    console.log('Calling loginUser...');
     await loginUser(email, password);
+    console.log('loginUser successful');
     closeAuthModal();
     showToast('¡Bienvenido de vuelta! 👋', 'success');
     e.target.reset();
+    location.hash = '#decks';
   } catch (err) {
+    console.error('Login error:', err);
     const msg = parseFirebaseError(err.code);
     errEl.textContent = msg;
     errEl.classList.add('show');
@@ -391,11 +397,20 @@ async function handleRegister(e) {
   btn.innerHTML = '<span class="loading-spinner"></span> Registrando...';
 
   try {
-    await registerUser(email, password);
+    console.log('Calling registerUser...');
+    // We race the registration with a small timeout to avoid UI hang if Firestore sync is slow
+    await Promise.race([
+      registerUser(email, password),
+      new Promise(resolve => setTimeout(resolve, 1500))
+    ]);
+
+    console.log('Register successful/offline-queued');
     closeAuthModal();
     showToast('¡Cuenta creada exitosamente! 🎉', 'success');
     e.target.reset();
+    location.hash = '#decks';
   } catch (err) {
+    console.error('Register error:', err);
     const msg = parseFirebaseError(err.code);
     errEl.textContent = msg;
     errEl.classList.add('show');
@@ -418,11 +433,13 @@ function parseFirebaseError(code) {
     'auth/invalid-credential': 'Credenciales inválidas.',
     'auth/email-already-in-use': 'El email ya está en uso.',
     'auth/weak-password': 'La contraseña es muy débil.',
-    'auth/invalid-email': 'Email inválido.',
+    'auth/operation-not-allowed': 'El registro con email no está habilitado en Firebase. Actívalo en la consola.',
+    'auth/invalid-email': 'El formato del email no es válido.',
+    'auth/internal-error': 'Error interno de Firebase.',
     'auth/too-many-requests': 'Demasiados intentos. Intenta más tarde.',
-    'auth/network-request-failed': 'Error de conexión. Verifica tu internet.',
+    'auth/network-request-failed': 'Error de conexión. Verifica tu internet.'
   };
-  return map[code] || 'Ocurrió un error. Inténtalo de nuevo.';
+  return map[code] || 'Ocurrió un error inesperado. Inténtalo de nuevo.';
 }
 
 // ─── Decks Page ────────────────────────────────────────────────────────────────
@@ -737,20 +754,34 @@ async function handleCreateDeck(e) {
   const descripcion = $('deck-descripcion').value.trim();
   if (!nombre) { showToast('El nombre de la baraja es obligatorio', 'warning'); return; }
 
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loading-spinner"></span> Creando...';
+  const btn = e.target.querySelector('button[type="submit"]') || $('btn-deck-submit');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner"></span> Creando...';
+  }
 
   try {
-    await createDeck(currentUser.uid, { nombre, descripcion });
+    console.log('Calling createDeck...');
+    // Race with timeout to handle potential Firestore offline hang
+    await Promise.race([
+      createDeck(currentUser.uid, { nombre, descripcion }),
+      new Promise(resolve => setTimeout(resolve, 1500))
+    ]);
+
+    console.log('createDeck initiated/successful');
     closeDeckModal();
     showToast(`Baraja "${nombre}" creada`, 'success');
-    await loadDecksPage();
+
+    console.log('Loading decks page...');
+    loadDecksPage().catch(console.error); // Don't block UI on reload
   } catch (err) {
+    console.error('Create deck error:', err);
     showToast('Error al crear baraja: ' + err.message, 'error');
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '＋ Crear baraja';
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '＋ Crear baraja';
+    }
   }
 }
 

@@ -17,11 +17,6 @@ import {
  */
 export async function registerUser(email, password) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
-    // Create user document in Firestore
-    await setDoc(doc(db, 'users', cred.user.uid), {
-        email: cred.user.email,
-        createdAt: serverTimestamp()
-    });
     return cred.user;
 }
 
