@@ -1,5 +1,10 @@
 const fetch = require('node-fetch');
 
+// Simple in-memory cache for search results
+// Key: query string, Value: { data, timestamp }
+const searchCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 /**
  * Normalize a raw card object from pokemonpricetracker.com API
  */
@@ -61,7 +66,15 @@ exports.searchCards = async (req, res) => {
     }
 
     const baseUrl = process.env.POKEMON_API_BASE_URL || 'https://www.pokemonpricetracker.com/api/v2';
-    const url = `${baseUrl}/cards?search=${encodeURIComponent(q.trim())}`;
+    const url = `${baseUrl}/cards?search=${encodeURIComponent(q.trim())}&limit=20`;
+
+    // Check cache first
+    const cacheKey = q.trim().toLowerCase();
+    const cached = searchCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        console.log(`[Cache Hit] Serving results for: "${cacheKey}"`);
+        return res.json(cached.data);
+    }
 
     try {
         const response = await fetch(url, {
@@ -79,6 +92,13 @@ exports.searchCards = async (req, res) => {
         }
 
         if (response.status === 429) {
+            const errorText = await response.text();
+            console.warn(`[API Rate Limit] 429 hit for: "${cacheKey}". Response:`, errorText);
+            // Fallback to stale cache if available
+            if (cached) {
+                console.log(`[Cache Fallback] Serving stale data for: "${cacheKey}"`);
+                return res.json(cached.data);
+            }
             return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
         }
 
@@ -101,12 +121,19 @@ exports.searchCards = async (req, res) => {
         }
 
         const normalized = rawCards.map(normalizeCard);
-
-        return res.json({
+        const result = {
             results: normalized,
             total: normalized.length,
             query: q,
+        };
+
+        // Save to cache
+        searchCache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
         });
+
+        return res.json(result);
     } catch (err) {
         console.error('Error calling Pokemon Price Tracker API:', err.message);
         return res.status(500).json({

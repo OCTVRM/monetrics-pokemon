@@ -13,7 +13,8 @@ import {
     updateDoc,
     serverTimestamp,
     orderBy,
-    query
+    query,
+    onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ─── User Document ─────────────────────────────────────────────────────────────
@@ -26,6 +27,32 @@ export async function ensureUserDocument(uid, email) {
     }
 }
 
+/**
+ * Get user profile data (nickname, ciudad, email).
+ */
+export async function getUserProfile(uid) {
+    try {
+        const userRef = doc(db, 'users', uid);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) return {};
+        return snap.data();
+    } catch (err) {
+        console.warn("Error in getUserProfile, returning empty:", err);
+        return {};
+    }
+}
+
+/**
+ * Update user profile fields (nickname, ciudad).
+ */
+export async function updateUserProfile(uid, data) {
+    const userRef = doc(db, 'users', uid);
+    await setDoc(userRef, {
+        nickname: data.nickname || '',
+        ciudad: data.ciudad || ''
+    }, { merge: true });
+}
+
 // ─── Decks CRUD ────────────────────────────────────────────────────────────────
 
 /**
@@ -36,6 +63,8 @@ export async function createDeck(uid, { nombre, descripcion }) {
     const docRef = await addDoc(decksRef, {
         nombre: nombre.trim(),
         descripcion: descripcion ? descripcion.trim() : '',
+        totalCards: 0,
+        totalValue: 0,
         createdAt: serverTimestamp()
     });
     return docRef.id;
@@ -62,6 +91,36 @@ export async function getDeck(uid, deckId) {
 }
 
 /**
+ * Subscribe to a single deck.
+ */
+export function subscribeToDeck(uid, deckId, callback) {
+    const deckRef = doc(db, 'users', uid, 'decks', deckId);
+    return onSnapshot(deckRef, (snap) => {
+        if (!snap.exists()) {
+            callback(null);
+        } else {
+            callback({ id: snap.id, ...snap.data() });
+        }
+    }, (err) => {
+        console.error('Error subscribing to deck:', err);
+    });
+}
+
+/**
+ * Subscribe to all decks for a user.
+ */
+export function subscribeToUserDecks(uid, callback) {
+    const decksRef = collection(db, 'users', uid, 'decks');
+    const q = query(decksRef, orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snap) => {
+        const decks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        callback(decks);
+    }, (err) => {
+        console.error('Error subscribing to decks:', err);
+    });
+}
+
+/**
  * Delete a deck and all its cards.
  */
 export async function deleteDeck(uid, deckId) {
@@ -77,7 +136,6 @@ export async function deleteDeck(uid, deckId) {
 
 /**
  * Add a card to a deck.
- * If the card already exists (by cardIdAPI), increment the quantity instead.
  */
 export async function addCardToDeck(uid, deckId, cardData) {
     const cardsRef = collection(db, 'users', uid, 'decks', deckId, 'cards');
@@ -87,24 +145,27 @@ export async function addCardToDeck(uid, deckId, cardData) {
         d => d.data().cardIdAPI === cardData.cardIdAPI
     );
 
+    let resId;
     if (existingCard) {
         const newQty = (existingCard.data().cantidad || 1) + 1;
         await updateDoc(existingCard.ref, { cantidad: newQty });
-        return existingCard.id;
+        resId = existingCard.id;
+    } else {
+        const docRef = await addDoc(cardsRef, {
+            cardIdAPI: cardData.cardIdAPI || null,
+            nombre: cardData.nombre,
+            set: cardData.set || 'Unknown',
+            numero: cardData.numero || null,
+            imagen: cardData.imagen || null,
+            precioUnitario: cardData.precioUnitario || 0,
+            cantidad: 1,
+            fechaAgregada: serverTimestamp()
+        });
+        resId = docRef.id;
     }
 
-    // New card - store current price as saved price
-    const docRef = await addDoc(cardsRef, {
-        cardIdAPI: cardData.cardIdAPI || null,
-        nombre: cardData.nombre,
-        set: cardData.set || 'Unknown',
-        numero: cardData.numero || null,
-        imagen: cardData.imagen || null,
-        precioUnitario: cardData.precioUnitario || 0,
-        cantidad: 1,
-        fechaAgregada: serverTimestamp()
-    });
-    return docRef.id;
+    await syncDeckStats(uid, deckId);
+    return resId;
 }
 
 /**
@@ -112,6 +173,7 @@ export async function addCardToDeck(uid, deckId, cardData) {
  */
 export async function removeCardFromDeck(uid, deckId, cardId) {
     await deleteDoc(doc(db, 'users', uid, 'decks', deckId, 'cards', cardId));
+    await syncDeckStats(uid, deckId);
 }
 
 /**
@@ -122,6 +184,7 @@ export async function updateCardQuantity(uid, deckId, cardId, cantidad) {
         return removeCardFromDeck(uid, deckId, cardId);
     }
     await updateDoc(doc(db, 'users', uid, 'decks', deckId, 'cards', cardId), { cantidad });
+    await syncDeckStats(uid, deckId);
 }
 
 /**
@@ -134,12 +197,38 @@ export async function getDeckCards(uid, deckId) {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+/**
+ * Subscribe to all cards in a deck.
+ */
+export function subscribeToDeckCards(uid, deckId, callback) {
+    const cardsRef = collection(db, 'users', uid, 'decks', deckId, 'cards');
+    const q = query(cardsRef, orderBy('fechaAgregada', 'desc'));
+    return onSnapshot(q, (snap) => {
+        const cards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        callback(cards);
+    }, (err) => {
+        console.error('Error subscribing to cards:', err);
+    });
+}
+
 // ─── Summary Calculation ───────────────────────────────────────────────────────
 
 /**
+ * Recalculate stats for a deck and save them to the deck document.
+ */
+export async function syncDeckStats(uid, deckId) {
+    const cards = await getDeckCards(uid, deckId);
+    const summary = calculateDeckSummary(cards);
+    const deckRef = doc(db, 'users', uid, 'decks', deckId);
+    await updateDoc(deckRef, {
+        totalCards: summary.cardCount,
+        totalValue: summary.total
+    });
+    return summary;
+}
+
+/**
  * Calculate the deck summary from a list of card objects.
- * @param {Array} cards
- * @returns {{ total: number, cardCount: number, mostExpensive: object|null, uniqueCards: number }}
  */
 export function calculateDeckSummary(cards) {
     if (!cards || cards.length === 0) {

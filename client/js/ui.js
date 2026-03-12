@@ -6,22 +6,32 @@ import { searchCards, getConversionRate } from './api.js';
 import {
   createDeck, getUserDecks, getDeck, deleteDeck,
   addCardToDeck, removeCardFromDeck, updateCardQuantity,
-  getDeckCards, calculateDeckSummary, ensureUserDocument
+  getDeckCards, calculateDeckSummary, ensureUserDocument,
+  syncDeckStats, subscribeToUserDecks, subscribeToDeck, subscribeToDeckCards,
+  getUserProfile, updateUserProfile
 } from './decks.js';
+import {
+  subscribeToMarketListings, createMarketListing,
+  getMarketListing, getListingsBySameCard, deactivateMarketListing
+} from './market.js';
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 let currentUser = null;
 let clpRate = 900;
-let currentDecks = [];
+let currentDecks = null;
 let pendingCard = null; // card to add to a deck after selecting
+let authInitialized = false; // Prevents premature redirection on initial page load
+let activeSubscriptions = {}; // Track Firebase onSnapshot listeners for cleanup
+let allMarketListings = []; // Market state for client-side filtering
+let userProfilesCache = {}; // Cache for seller profiles to avoid redundant fetches
 
 // ─── DOM Refs ──────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
 export async function init() {
-  const { usdToClp } = await getConversionRate();
-  clpRate = usdToClp;
+  // Don't block init on conversion rate
+  getConversionRate().then(data => { clpRate = data.usdToClp; });
 
   // Auth state listener
   onAuthStateChanged(user => {
@@ -31,19 +41,32 @@ export async function init() {
     if (user) {
       ensureUserDocument(user.uid, user.email).catch(console.error);
     }
+
+    // Defer initial routing until auth is known, preventing fake logout bugs
+    if (!authInitialized) {
+      authInitialized = true;
+      handleRoute(location.hash || '#search');
+    }
   });
 
   // Bind all events
   bindEvents();
-
-  // Load initial page from hash
-  handleRoute(location.hash || '#search');
 }
 
 // ─── Router ────────────────────────────────────────────────────────────────────
+function clearSubscriptions() {
+  Object.values(activeSubscriptions).forEach(unsub => {
+    if (typeof unsub === 'function') unsub();
+  });
+  activeSubscriptions = {};
+}
+
 function handleRoute(hash) {
   const [route, param] = hash.split('/');
+  clearSubscriptions();
+
   switch (route) {
+    case '#home':
     case '#search':
     case '':
       showPage('page-home');
@@ -59,6 +82,16 @@ function handleRoute(hash) {
       if (!currentUser) { showToast('Inicia sesión para ver esta baraja', 'warning'); showPage('page-home'); break; }
       showPage('page-deck-detail');
       loadDeckDetailPage(param);
+      break;
+    case '#market':
+      showPage('page-market');
+      setNavActive('nav-market');
+      loadMarketPage();
+      break;
+    case '#profile':
+      if (!currentUser) { showToast('Inicia sesión para ver tu perfil', 'warning'); showPage('page-home'); break; }
+      showPage('page-profile');
+      loadProfilePage();
       break;
     default:
       showPage('page-home');
@@ -92,12 +125,17 @@ function updateAuthUI(user) {
     if (userActions) userActions.style.display = 'flex';
     if (userEmail) userEmail.textContent = user.email;
     if (navDecks) navDecks.style.display = 'flex';
+    const btnSell = $('btn-sell-card');
+    if (btnSell) btnSell.style.display = 'flex';
   } else {
     if (guestActions) guestActions.style.display = 'flex';
     if (userActions) userActions.style.display = 'none';
     if (navDecks) navDecks.style.display = 'none';
-    // If on auth-required page, redirect
-    if (location.hash.startsWith('#decks') || location.hash.startsWith('#deck')) {
+    const btnSell = $('btn-sell-card');
+    if (btnSell) btnSell.style.display = 'none';
+
+    // If on auth-required page and auth has initialized (not just initial loading delay), redirect
+    if (authInitialized && (location.hash.startsWith('#decks') || location.hash.startsWith('#deck') || location.hash.startsWith('#profile'))) {
       location.hash = '#search';
     }
   }
@@ -147,7 +185,8 @@ function bindEvents() {
   // Nav - Decks
   $('nav-decks')?.addEventListener('click', () => { location.hash = '#decks'; });
 
-  // Nav - Search
+  // Nav - Search / Home
+  $('nav-logo')?.addEventListener('click', () => { location.hash = '#home'; });
   $('nav-search')?.addEventListener('click', () => { location.hash = '#search'; });
 
   // Create deck button
@@ -167,6 +206,26 @@ function bindEvents() {
 
   // Back from deck detail
   $('btn-back-decks')?.addEventListener('click', () => { location.hash = '#decks'; });
+
+  // Sell card modal
+  $('btn-sell-card')?.addEventListener('click', openSellModal);
+  $('sell-modal-close')?.addEventListener('click', closeSellModal);
+  $('sell-modal-cancel')?.addEventListener('click', closeSellModal);
+  $('sell-modal-overlay')?.addEventListener('click', e => { if (e.target === $('sell-modal-overlay')) closeSellModal(); });
+  $('sell-form')?.addEventListener('submit', handleSubmitListing);
+
+  // Sell form - price suggestion on name change
+  $('sell-nombre')?.addEventListener('blur', fetchPriceSuggestion);
+  $('sell-edicion')?.addEventListener('blur', fetchPriceSuggestion);
+
+  // Listing detail modal
+  $('listing-detail-close')?.addEventListener('click', closeListingDetail);
+  $('listing-detail-overlay')?.addEventListener('click', e => { if (e.target === $('listing-detail-overlay')) closeListingDetail(); });
+
+  // Market search
+  const marketInput = $('market-search-input');
+  $('market-search-btn')?.addEventListener('click', () => filterMarket(marketInput?.value));
+  marketInput?.addEventListener('keydown', e => { if (e.key === 'Enter') filterMarket(marketInput.value); });
 }
 
 // ─── Search ────────────────────────────────────────────────────────────────────
@@ -422,6 +481,8 @@ async function handleRegister(e) {
 
 async function handleLogout() {
   await logoutUser();
+  currentUser = null;
+  currentDecks = null; // Clear cache
   location.hash = '#search';
   showToast('Sesión cerrada', 'info');
 }
@@ -446,14 +507,25 @@ function parseFirebaseError(code) {
 async function loadDecksPage() {
   const container = $('decks-grid');
   if (!container) return;
-  container.innerHTML = `<div class="empty-state"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
 
-  try {
-    currentDecks = await getUserDecks(currentUser.uid);
+  // Show cache immediately if available, otherwise spinner
+  if (!currentDecks) {
+    container.innerHTML = `<div class="empty-state"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
+  } else {
     renderDecksGrid(currentDecks);
-  } catch (err) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Error cargando barajas</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
   }
+
+  // Subscribe for real-time updates (instant if offline/cached)
+  activeSubscriptions.decks = subscribeToUserDecks(currentUser.uid, (decks) => {
+    currentDecks = decks;
+    renderDecksGrid(decks);
+
+    // Silent background sync check for consistency
+    const needsSync = decks.filter(d => d.totalCards === undefined || d.totalCards === 0);
+    needsSync.forEach(deck => {
+      syncDeckStats(currentUser.uid, deck.id).catch(() => { });
+    });
+  });
 }
 
 function renderDecksGrid(decks) {
@@ -472,7 +544,11 @@ function renderDecksGrid(decks) {
     return;
   }
 
-  container.innerHTML = decks.map(deck => `
+  container.innerHTML = decks.map(deck => {
+    const totalValue = deck.totalValue != null ? `$${deck.totalValue.toFixed(2)}` : '—';
+    const totalCards = deck.totalCards != null ? deck.totalCards : '—';
+
+    return `
     <div class="deck-card" data-deck-id="${deck.id}">
       <div class="deck-card-header">
         <div class="deck-card-icon">📦</div>
@@ -483,11 +559,11 @@ function renderDecksGrid(decks) {
       </div>
       <div class="deck-stats">
         <div class="deck-stat">
-          <div class="ds-value" id="deck-stat-${deck.id}">—</div>
+          <div class="ds-value" id="deck-stat-${deck.id}">${totalValue}</div>
           <div class="ds-label">Valor USD</div>
         </div>
         <div class="deck-stat">
-          <div class="ds-value" id="deck-cards-${deck.id}">—</div>
+          <div class="ds-value" id="deck-cards-${deck.id}">${totalCards}</div>
           <div class="ds-label">Cartas</div>
         </div>
       </div>
@@ -495,10 +571,8 @@ function renderDecksGrid(decks) {
         <button class="btn btn-primary btn-sm" onclick="location.hash='#deck/${deck.id}'">Ver baraja</button>
         <button class="btn btn-danger btn-sm" data-action="delete-deck" data-deck-id="${deck.id}">🗑️</button>
       </div>
-    </div>`).join('');
-
-  // Load stats for each deck asynchronously
-  decks.forEach(deck => loadDeckStats(deck.id));
+    </div>`;
+  }).join('');
 
   // Bind delete
   container.querySelectorAll('[data-action="delete-deck"]').forEach(btn => {
@@ -509,16 +583,6 @@ function renderDecksGrid(decks) {
   });
 }
 
-async function loadDeckStats(deckId) {
-  try {
-    const cards = await getDeckCards(currentUser.uid, deckId);
-    const summary = calculateDeckSummary(cards);
-    const valEl = $(`deck-stat-${deckId}`);
-    const cntEl = $(`deck-cards-${deckId}`);
-    if (valEl) valEl.textContent = `$${summary.total.toFixed(2)}`;
-    if (cntEl) cntEl.textContent = summary.cardCount;
-  } catch { /* silently fail */ }
-}
 
 // ─── Deck Detail ───────────────────────────────────────────────────────────────
 async function loadDeckDetailPage(deckId) {
@@ -526,15 +590,37 @@ async function loadDeckDetailPage(deckId) {
   if (!container || !deckId) return;
   container.innerHTML = `<div class="empty-state"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
 
-  try {
-    const [deck, cards] = await Promise.all([
-      getDeck(currentUser.uid, deckId),
-      getDeckCards(currentUser.uid, deckId)
-    ]);
-    renderDeckDetail(deck, cards, deckId);
-  } catch (err) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Error</div><div class="empty-desc">${escHtml(err.message)}</div></div>`;
+  let currentDeckData = null;
+  let currentCardsData = null;
+
+  function handleDataUpdate(deck, cards) {
+    if (deck) currentDeckData = deck;
+    if (cards) currentCardsData = cards;
+
+    if (currentDeckData && currentCardsData) {
+      renderDeckDetail(currentDeckData, currentCardsData, deckId);
+
+      // Consistency check
+      const summary = calculateDeckSummary(currentCardsData);
+      if (currentDeckData.totalCards !== summary.cardCount) {
+        syncDeckStats(currentUser.uid, deckId).catch(() => { });
+      }
+    }
   }
+
+  // Subscribe to deck info
+  activeSubscriptions.deck = subscribeToDeck(currentUser.uid, deckId, (deck) => {
+    if (!deck) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Baraja no encontrada</div></div>`;
+      return;
+    }
+    handleDataUpdate(deck, null);
+  });
+
+  // Subscribe to cards
+  activeSubscriptions.cards = subscribeToDeckCards(currentUser.uid, deckId, (cards) => {
+    handleDataUpdate(null, cards);
+  });
 }
 
 function renderDeckDetail(deck, cards, deckId) {
@@ -786,9 +872,20 @@ async function handleCreateDeck(e) {
 }
 
 async function handleDeleteDeck(deckId, redirect = false) {
+  console.log('Attempting to delete deck:', deckId);
   if (!confirm('¿Estás seguro de eliminar esta baraja y todas sus cartas?')) return;
   try {
-    await deleteDeck(currentUser.uid, deckId);
+    const start = Date.now();
+    // Race with a timeout to avoid UI hang if sync is slow
+    await Promise.race([
+      deleteDeck(currentUser.uid, deckId),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+    console.log(`Deck deleted/queued in ${Date.now() - start}ms`);
+
+    // Clear cache to force reload
+    currentDecks = null;
+
     showToast('Baraja eliminada', 'success');
     if (redirect) {
       location.hash = '#decks';
@@ -806,21 +903,37 @@ async function handleAddToDeck(card) {
 
   pendingCard = card;
 
-  try {
-    currentDecks = await getUserDecks(currentUser.uid);
-  } catch (err) {
-    showToast('Error cargando barajas: ' + err.message, 'error');
-    return;
+  // 1. Open modal immediately
+  $('deck-selector-overlay').classList.add('open');
+  const list = $('deck-selector-list');
+
+  // 2. Show loading if decks aren't ready
+  if (currentDecks === null) {
+    list.innerHTML = `<div class="empty-state" style="padding:20px"><div class="loading-spinner"></div><div style="margin-top:10px;font-size:13px">Cargando tus barajas...</div></div>`;
+    try {
+      currentDecks = await getUserDecks(currentUser.uid);
+    } catch (err) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-desc">Error: ${escHtml(err.message)}</div></div>`;
+      return;
+    }
   }
 
+  // 3. Render list (either from cache or fresh fetch)
   if (currentDecks.length === 0) {
-    showToast('Primero crea una baraja desde la sección "Mis Barajas"', 'warning');
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📦</div>
+        <div class="empty-desc">No tienes barajas todavía.</div>
+        <button class="btn btn-primary btn-sm" onclick="window.__closeDS(); location.hash='#decks';">Ir a Mis Barajas</button>
+      </div>`;
     return;
   }
 
   renderDeckSelector(currentDecks);
-  $('deck-selector-overlay').classList.add('open');
 }
+
+// Internal helper for inline onclick
+window.__closeDS = closeDeckSelector;
 
 function renderDeckSelector(decks) {
   const list = $('deck-selector-list');
@@ -846,6 +959,7 @@ function closeDeckSelector() {
 async function confirmAddCard(deckId) {
   if (!pendingCard) return;
   const deck = currentDecks.find(d => d.id === deckId);
+  const item = document.querySelector(`.deck-selector-item[data-deck-id="${deckId}"]`);
 
   const cardData = {
     cardIdAPI: pendingCard.id,
@@ -856,15 +970,51 @@ async function confirmAddCard(deckId) {
     precioUnitario: pendingCard.avgPrice || 0
   };
 
-  closeDeckSelector();
+  // UI Feedback: disable and show loading
+  if (item) {
+    item.classList.add('loading');
+    const label = item.querySelector('.dsi-count');
+    if (label) label.textContent = 'Agregando...';
+    // Disable all items to prevent double clicks
+    document.querySelectorAll('.deck-selector-item').forEach(el => el.style.pointerEvents = 'none');
+  }
 
   try {
-    await addCardToDeck(currentUser.uid, deckId, cardData);
+    // 4. Race the addition with a timeout to avoid UI hang
+    // Firestore will continue syncing in the background if offline
+    await Promise.race([
+      addCardToDeck(currentUser.uid, deckId, cardData),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+
+    // Success feedback in modal
+    if (item) {
+      item.classList.remove('loading');
+      item.classList.add('success');
+      const label = item.querySelector('.dsi-count');
+      if (label) label.textContent = '¡Agregado con éxito!';
+    }
+
+    // Update local cache count if available
+    const deckObj = currentDecks?.find(d => d.id === deckId);
+    if (deckObj && deckObj.totalCards !== undefined) {
+      deckObj.totalCards++;
+    }
+
     showToast(`"${pendingCard.name}" agregada a "${deck?.nombre}"`, 'success');
+
+    // Close modal after a short delay so user sees the success state
+    setTimeout(closeDeckSelector, 800);
   } catch (err) {
     showToast('Error al agregar carta: ' + err.message, 'error');
+    if (item) {
+      item.classList.remove('loading');
+      const label = item.querySelector('.dsi-count');
+      if (label) label.textContent = 'Error al agregar';
+      document.querySelectorAll('.deck-selector-item').forEach(el => el.style.pointerEvents = 'auto');
+    }
+    pendingCard = null;
   }
-  pendingCard = null;
 }
 
 // ─── Card Detail Modal (optional) ──────────────────────────────────────────────
@@ -887,4 +1037,331 @@ export function showToast(message, type = 'info') {
 function escHtml(str) {
   if (str == null) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── COMMUNITY MARKET ─────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function loadMarketPage() {
+  const grid = $('market-grid');
+  if (!grid) return;
+  grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;padding:60px 0"><div class="loading-spinner" style="width:36px;height:36px"></div></div>`;
+
+  activeSubscriptions.market = subscribeToMarketListings((listings) => {
+    allMarketListings = listings;
+    renderMarketGrid(listings);
+  });
+}
+
+function filterMarket(query) {
+  if (!query || !query.trim()) { renderMarketGrid(allMarketListings); return; }
+  const q = query.toLowerCase().trim();
+  const filtered = allMarketListings.filter(l =>
+    (l.nombre && l.nombre.toLowerCase().includes(q)) ||
+    (l.edicion && l.edicion.toLowerCase().includes(q))
+  );
+  renderMarketGrid(filtered);
+}
+
+function renderMarketGrid(listings) {
+  const grid = $('market-grid');
+  if (!grid) return;
+
+  if (!listings || listings.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:80px 20px">
+        <div style="font-size:56px;margin-bottom:16px">🏪</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">El mercado está vacío</div>
+        <div style="color:var(--text-muted);font-size:14px">Sé el primero en publicar una carta</div>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = listings.map(l => {
+    const imgHtml = l.imagenUrl
+      ? `<img src="${escHtml(l.imagenUrl)}" alt="${escHtml(l.nombre)}" loading="lazy" onerror="this.parentElement.innerHTML='<span class=market-card-no-img>🃏</span>'">`
+      : `<span class="market-card-no-img">🃏</span>`;
+
+    return `
+      <div class="market-card" data-id="${escHtml(l.id)}" onclick="window._openListing('${escHtml(l.id)}')">
+        <div class="market-card-img-wrap">
+          ${imgHtml}
+          <span class="market-card-price-badge">$${(+l.precio || 0).toFixed(2)}</span>
+        </div>
+        <div class="market-card-body">
+          <div class="market-card-name">${escHtml(l.nombre)}</div>
+          <div class="market-card-edition">${escHtml(l.edicion || '—')}</div>
+          <div class="market-card-number">#${escHtml(l.numero || '—')}</div>
+        </div>
+        <div class="market-card-footer">
+          <span class="market-price-usd">USD $${(+l.precio || 0).toFixed(2)}</span>
+          <span class="market-card-idioma">${escHtml(l.idioma || 'ES')}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Expose to global scope for inline onclick handlers
+window._openListing = openListingDetail;
+
+async function openListingDetail(listingId) {
+  const overlay = $('listing-detail-overlay');
+  const body = $('listing-detail-body');
+  if (!overlay || !body) return;
+
+  overlay.classList.add('open');
+
+  // 1. Get listing: prefer local state, fall back to Firestore
+  let listing = allMarketListings.find(l => l.id === listingId);
+  if (!listing) {
+    body.innerHTML = `<div style="text-align:center;padding:40px"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
+    try {
+      listing = await getMarketListing(listingId);
+    } catch (err) {
+      body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--danger)">Error: ${escHtml(err.message)}</div>`;
+      return;
+    }
+  }
+
+  // 2. Render card data immediately — no waiting for profile
+  const sameCardsCount = allMarketListings.filter(l =>
+    l.id !== listingId &&
+    l.nombre === listing.nombre &&
+    l.edicion === listing.edicion
+  ).length + 1;
+
+  const priceClp = ((+listing.precio || 0) * clpRate).toFixed(0);
+  const imgHtml = listing.imagenUrl
+    ? `<img src="${escHtml(listing.imagenUrl)}" alt="${escHtml(listing.nombre)}">`
+    : `<span class="listing-detail-no-img">🃏</span>`;
+
+  body.innerHTML = `
+    <div class="listing-detail-layout">
+      <div class="listing-detail-img">${imgHtml}</div>
+      <div class="listing-detail-info">
+        <div class="listing-detail-name">${escHtml(listing.nombre)}</div>
+        <div class="listing-detail-price">
+          USD $${(+listing.precio || 0).toFixed(2)}
+          <span class="price-clp">≈ CLP $${Number(priceClp).toLocaleString('es-CL')}</span>
+        </div>
+        <div class="listing-detail-attrs">
+          <div class="listing-attr"><div class="listing-attr-label">Edición</div><div class="listing-attr-value">${escHtml(listing.edicion || '—')}</div></div>
+          <div class="listing-attr"><div class="listing-attr-label">Rareza</div><div class="listing-attr-value">${escHtml(listing.rareza || '—')}</div></div>
+          <div class="listing-attr"><div class="listing-attr-label">N° de carta</div><div class="listing-attr-value">${escHtml(listing.numero || '—')}</div></div>
+          <div class="listing-attr"><div class="listing-attr-label">Ilustrador</div><div class="listing-attr-value">${escHtml(listing.ilustrador || '—')}</div></div>
+          <div class="listing-attr"><div class="listing-attr-label">Idioma</div><div class="listing-attr-value">${escHtml(listing.idioma || '—')}</div></div>
+        </div>
+        <div class="seller-info" id="seller-info-${listingId}">
+          <div class="seller-info-title">👤 Vendedor</div>
+          <div style="color:var(--text-faint);font-size:13px">Cargando vendedor...</div>
+        </div>
+        <div class="same-card-count">
+          <strong>${sameCardsCount}</strong> publicación(es) de esta carta disponible(s) en el mercado
+        </div>
+      </div>
+    </div>`;
+
+  // 3. Load seller profile asynchronously and update the seller section
+  const sellerEl = body.querySelector(`#seller-info-${listingId}`);
+  if (!sellerEl) return;
+
+  let sellerProfile = userProfilesCache[listing.uid];
+  if (!sellerProfile) {
+    try {
+      sellerProfile = await getUserProfile(listing.uid);
+      userProfilesCache[listing.uid] = sellerProfile;
+    } catch (_) {
+      sellerProfile = { nickname: 'Vendedor', ciudad: '' };
+    }
+  }
+
+  // Only update if the modal is still open and showing this listing
+  if (!overlay.classList.contains('open')) return;
+  const sellerNick = sellerProfile.nickname || sellerProfile.email || 'Vendedor';
+  const sellerCity = sellerProfile.ciudad || '';
+  sellerEl.innerHTML = `
+    <div class="seller-info-title">👤 Vendedor</div>
+    <div class="seller-info-row">🎮 <span>Nickname:</span> ${escHtml(sellerNick)}</div>
+    ${sellerCity ? `<div class="seller-info-row">📍 <span>Ciudad:</span> ${escHtml(sellerCity)}</div>` : ''}`;
+}
+
+function closeListingDetail() {
+  $('listing-detail-overlay')?.classList.remove('open');
+}
+
+// ─── Sell Modal ────────────────────────────────────────────────────────────────
+let lastFetchedRecommendedPrice = 0;
+let _priceSuggestionAbort = null; // AbortController for in-flight price suggestion
+
+function openSellModal() {
+  if (!currentUser) { showToast('Debes iniciar sesión para vender', 'warning'); return; }
+  const form = $('sell-form');
+  if (form) { form.reset(); delete form.dataset.imgUrl; }
+  const sugg = $('sell-price-suggestion');
+  if (sugg) sugg.innerHTML = '<span class="price-label">Precio recomendado</span><span style="color:var(--text-faint);font-size:12px">Ingresa nombre y edición para obtener recomendación</span>';
+  const err = $('sell-error');
+  if (err) err.textContent = '';
+  lastFetchedRecommendedPrice = 0;
+  $('sell-modal-overlay')?.classList.add('open');
+}
+
+function closeSellModal() {
+  $('sell-modal-overlay')?.classList.remove('open');
+}
+
+async function fetchPriceSuggestion() {
+  const nombre = $('sell-nombre')?.value?.trim();
+  if (!nombre) return;
+  const edicion = $('sell-edicion')?.value?.trim();
+  const sugg = $('sell-price-suggestion');
+  if (!sugg) return;
+
+  // Cancel any previous in-flight request
+  if (_priceSuggestionAbort) _priceSuggestionAbort.abort();
+  _priceSuggestionAbort = new AbortController();
+  const signal = _priceSuggestionAbort.signal;
+
+  sugg.innerHTML = '<span class="price-label">Precio recomendado</span><span style="color:var(--text-faint);font-size:12px">Buscando precio...</span>';
+
+  try {
+    const query = edicion ? `${nombre} ${edicion}` : nombre;
+    const data = await searchCards(query);
+    if (signal.aborted) return; // Form was submitted, discard result
+    const cards = data?.cards || data?.data || [];
+
+    if (cards.length > 0) {
+      const card = cards[0];
+      const marketPrice = card.cardmarket?.prices?.averageSellPrice
+        || card.tcgplayer?.prices?.normal?.market
+        || card.tcgplayer?.prices?.holofoil?.market
+        || null;
+
+      if (marketPrice) {
+        lastFetchedRecommendedPrice = marketPrice;
+        const clpPrice = (marketPrice * clpRate).toFixed(0);
+        sugg.innerHTML = `
+          <span class="price-label">💡 Precio recomendado</span>
+          <span class="price-value">$${marketPrice.toFixed(2)}</span>
+          <span class="price-sub">≈ CLP $${Number(clpPrice).toLocaleString('es-CL')}</span>`;
+        const priceInput = $('sell-precio');
+        if (priceInput && !priceInput.value) priceInput.value = marketPrice.toFixed(2);
+        const imgUrl = card.images?.small || null;
+        const form = $('sell-form');
+        if (imgUrl && form) form.dataset.imgUrl = imgUrl;
+      } else {
+        sugg.innerHTML = '<span class="price-label">Precio recomendado</span><span style="color:var(--text-faint);font-size:12px">Sin datos de precio disponibles</span>';
+      }
+    } else {
+      sugg.innerHTML = '<span class="price-label">Precio recomendado</span><span style="color:var(--text-faint);font-size:12px">Carta no encontrada en la API</span>';
+    }
+  } catch (_) {
+    if (signal.aborted) return;
+    sugg.innerHTML = '<span class="price-label">Precio recomendado</span><span style="color:var(--text-faint);font-size:12px">No se pudo obtener precio</span>';
+  }
+}
+
+async function handleSubmitListing(e) {
+  e.preventDefault();
+  const errEl = $('sell-error');
+  if (errEl) errEl.textContent = '';
+
+  const nombre = $('sell-nombre')?.value?.trim();
+  const precio = parseFloat($('sell-precio')?.value);
+
+  if (!nombre) { if (errEl) errEl.textContent = 'El nombre de la carta es requerido.'; return; }
+  if (!precio || precio <= 0) { if (errEl) errEl.textContent = 'Ingresa un precio válido mayor a 0.'; return; }
+
+  // Abort any in-flight price suggestion so it doesn't interfere
+  if (_priceSuggestionAbort) { _priceSuggestionAbort.abort(); _priceSuggestionAbort = null; }
+
+  const btn = $('btn-sell-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Publicando...'; }
+
+  // Grab image URL before closing (dataset is on the form element)
+  const form = $('sell-form');
+  const imgUrl = form?.dataset?.imgUrl || null;
+
+  try {
+    await createMarketListing(currentUser.uid, {
+      nombre,
+      edicion: $('sell-edicion')?.value?.trim() || '',
+      rareza: $('sell-rareza')?.value || '',
+      numero: $('sell-numero')?.value?.trim() || '',
+      ilustrador: $('sell-ilustrador')?.value?.trim() || '',
+      idioma: $('sell-idioma')?.value || 'Español',
+      precio,
+      precioRecomendado: lastFetchedRecommendedPrice,
+      imagenUrl: imgUrl
+    });
+    // Close immediately after Firestore write - don't wait for hash navigation
+    closeSellModal();
+    showToast('¡Carta publicada en el mercado! 🎉', 'success');
+    if (location.hash !== '#market') location.hash = '#market';
+  } catch (err) {
+    if (errEl) errEl.textContent = err.message;
+    showToast('Error al publicar: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Publicar en el mercado'; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── USER PROFILE ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function loadProfilePage() {
+  const container = $('profile-content');
+  if (!container || !currentUser) return;
+  container.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:40px"><div class="loading-spinner" style="width:28px;height:28px"></div></div>`;
+
+  try {
+    const profile = await getUserProfile(currentUser.uid);
+
+    container.innerHTML = `
+      <div class="profile-avatar">👤</div>
+      <div class="form-group" style="margin-bottom:16px">
+        <div class="profile-field-label">Correo electrónico</div>
+        <div class="profile-email-display">${escHtml(currentUser.email)}</div>
+      </div>
+      <form id="profile-form" novalidate>
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label" for="profile-nickname">Nickname (visible en el mercado)</label>
+          <input class="form-input" type="text" id="profile-nickname"
+            value="${escHtml(profile.nickname || '')}"
+            placeholder="Tu nombre de usuario" maxlength="40" />
+        </div>
+        <div class="form-group" style="margin-bottom:20px">
+          <label class="form-label" for="profile-ciudad">Ciudad</label>
+          <input class="form-input" type="text" id="profile-ciudad"
+            value="${escHtml(profile.ciudad || '')}"
+            placeholder="Ej: Santiago, Buenos Aires..." maxlength="60" />
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <button type="submit" class="btn btn-primary">💾 Guardar cambios</button>
+          <p class="form-error" id="profile-error" style="margin:0"></p>
+        </div>
+      </form>`;
+
+    container.querySelector('#profile-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = container.querySelector('#profile-error');
+      if (errEl) errEl.textContent = '';
+      const btn = container.querySelector('[type=submit]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+      try {
+        await updateUserProfile(currentUser.uid, {
+          nickname: container.querySelector('#profile-nickname')?.value?.trim() || '',
+          ciudad: container.querySelector('#profile-ciudad')?.value?.trim() || ''
+        });
+        showToast('Perfil actualizado correctamente ✅', 'success');
+      } catch (err) {
+        if (errEl) errEl.textContent = err.message;
+        showToast('Error al guardar: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar cambios'; }
+      }
+    });
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--danger);padding:24px">Error cargando perfil: ${escHtml(err.message)}</div>`;
+  }
 }

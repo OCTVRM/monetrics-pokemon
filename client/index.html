@@ -17,7 +17,7 @@
 
     <!-- ── NAVBAR ─────────────────────────────────────────────────────────────── -->
     <nav class="navbar">
-      <a class="navbar-brand" href="#search" id="nav-search">
+      <a class="navbar-brand" href="#home" id="nav-logo">
         <span class="brand-icon">⚡</span>
         <span class="brand-text">Monetrics <span>Pokemon</span></span>
       </a>
@@ -29,6 +29,7 @@
       </div>
 
       <div class="navbar-actions">
+        <button class="nav-link" id="nav-market" onclick="location.hash='#market'">🏪 Mercado</button>
         <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
 
         <!-- Guest actions -->
@@ -47,6 +48,7 @@
                 <div class="user-label">Usuario registrado</div>
               </div>
               <button class="dropdown-item" onclick="location.hash='#decks'">📦 Mis Barajas</button>
+              <button class="dropdown-item" onclick="location.hash='#profile'">👤 Mi Perfil</button>
               <button class="dropdown-item danger" id="btn-logout">🚪 Cerrar sesión</button>
             </div>
           </div>
@@ -123,11 +125,130 @@
         </div>
       </div>
 
+      <!-- MARKET PAGE -->
+      <div class="page" id="page-market">
+        <div class="market-page-header">
+          <div>
+            <div class="section-title">🏪 Mercado de Comunidad</div>
+            <div class="section-subtitle">Cartas publicadas por la comunidad</div>
+          </div>
+          <div class="market-header-actions">
+            <div class="market-search-bar">
+              <input type="search" id="market-search-input" placeholder="Buscar por nombre o edición..." autocomplete="off" />
+              <button class="search-btn" id="market-search-btn" aria-label="Buscar">🔍</button>
+            </div>
+            <button class="btn btn-primary" id="btn-sell-card" style="display:none">🏷️ Vender carta</button>
+          </div>
+        </div>
+        <div class="market-grid" id="market-grid">
+          <!-- Market cards injected by JS -->
+        </div>
+      </div>
+
+      <!-- PROFILE PAGE -->
+      <div class="page" id="page-profile">
+        <div class="section-header">
+          <div>
+            <div class="section-title">👤 Mi Perfil</div>
+            <div class="section-subtitle">Datos que verán los compradores cuando publiques cartas</div>
+          </div>
+        </div>
+        <div class="profile-card" id="profile-content">
+          <!-- Profile form injected by JS -->
+        </div>
+      </div>
+
     </main><!-- /.main-content -->
   </div><!-- /.app-wrapper -->
 
   <!-- ── TOAST CONTAINER ─────────────────────────────────────────────────────── -->
   <div class="toast-container" id="toast-container"></div>
+
+  <!-- ── SELL CARD MODAL ───────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="sell-modal-overlay">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="sell-modal-title">
+      <div class="modal-header">
+        <span class="modal-title" id="sell-modal-title">🏷️ Poner carta en venta</span>
+        <button class="modal-close" id="sell-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="sell-form" novalidate>
+        <div class="sell-form-grid">
+          <div class="form-group">
+            <label class="form-label" for="sell-nombre">Nombre de la carta *</label>
+            <input class="form-input" type="text" id="sell-nombre" placeholder="Ej: Charizard" required maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-edicion">Edición *</label>
+            <input class="form-input" type="text" id="sell-edicion" placeholder="Ej: Base Set, Fossil..." required maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-rareza">Rareza</label>
+            <select class="form-input" id="sell-rareza">
+              <option value="">Seleccionar...</option>
+              <option value="Common">Common</option>
+              <option value="Uncommon">Uncommon</option>
+              <option value="Rare">Rare</option>
+              <option value="Rare Holo">Rare Holo</option>
+              <option value="Ultra Rare">Ultra Rare</option>
+              <option value="Secret Rare">Secret Rare</option>
+              <option value="Full Art">Full Art</option>
+              <option value="Rainbow Rare">Rainbow Rare</option>
+              <option value="Gold">Gold</option>
+              <option value="Promo">Promo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-numero">Número de carta</label>
+            <input class="form-input" type="text" id="sell-numero" placeholder="Ej: 4/102" maxlength="20" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-ilustrador">Ilustrador</label>
+            <input class="form-input" type="text" id="sell-ilustrador" placeholder="Ej: Ken Sugimori" maxlength="80" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-idioma">Idioma</label>
+            <select class="form-input" id="sell-idioma">
+              <option value="Español">Español</option>
+              <option value="Inglés">Inglés</option>
+              <option value="Japonés">Japonés</option>
+              <option value="Francés">Francés</option>
+              <option value="Alemán">Alemán</option>
+              <option value="Portugués">Portugués</option>
+              <option value="Italiano">Italiano</option>
+              <option value="Coreano">Coreano</option>
+            </select>
+          </div>
+        </div>
+        <div class="sell-price-section">
+          <div class="form-group">
+            <label class="form-label" for="sell-precio">Tu precio (USD) *</label>
+            <input class="form-input" type="number" id="sell-precio" placeholder="0.00" min="0" step="0.01" required />
+          </div>
+          <div class="price-recomendado" id="sell-price-suggestion">
+            <!-- Price suggestion injected by JS -->
+          </div>
+        </div>
+        <p class="form-error" id="sell-error"></p>
+        <div class="modal-footer" style="padding:1rem 0 0 0;border:none">
+          <button type="button" class="btn btn-outline" id="sell-modal-cancel">Cancelar</button>
+          <button type="submit" id="btn-sell-submit" class="btn btn-primary">📤 Publicar en el mercado</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── LISTING DETAIL MODAL ──────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="listing-detail-overlay">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="listing-detail-title">
+      <div class="modal-header">
+        <span class="modal-title" id="listing-detail-title">🃏 Detalle de publicación</span>
+        <button class="modal-close" id="listing-detail-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body" id="listing-detail-body">
+        <!-- Listing detail injected by JS -->
+      </div>
+    </div>
+  </div>
 
   <!-- ── AUTH MODAL ─────────────────────────────────────────────────────────── -->
   <div class="modal-overlay" id="auth-modal-overlay">

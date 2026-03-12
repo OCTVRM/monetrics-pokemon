@@ -940,6 +940,26 @@ textarea.form-input {
 .deck-selector-item .dsi-name { font-weight: 600; font-size: 14px; color: var(--text); }
 .deck-selector-item .dsi-count { font-size: 11px; color: var(--text-muted); }
 
+.deck-selector-item.loading {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  opacity: 0.7;
+}
+
+.deck-selector-item.success {
+  border-color: var(--success);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.deck-selector-item.success .dsi-name {
+  color: var(--success);
+}
+
+.deck-selector-item.success .dsi-count {
+  color: var(--success);
+  font-weight: 600;
+}
+
 /* ── Loading States ────────────────────────────────────────────────────────── */
 .skeleton-grid {
   display: grid;
@@ -1091,4 +1111,390 @@ textarea.form-input {
   .summary-grid { grid-template-columns: 1fr; }
   .decks-grid { grid-template-columns: 1fr; }
   .hero-search-bar { flex-direction: column; }
+}
+
+/* ── Community Market ─────────────────────────────────────────────────────────── */
+.market-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.market-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.market-search-bar {
+  display: flex;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.market-search-bar:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.market-search-bar input {
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 9px 14px;
+  color: var(--text);
+  font-size: 13px;
+  width: 240px;
+}
+
+.market-search-bar .search-btn {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 9px 14px;
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.market-search-bar .search-btn:hover { color: var(--primary); }
+
+/* Market Grid — 5 columns */
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+}
+
+.market-card {
+  background: var(--card);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+  display: flex;
+  flex-direction: column;
+}
+
+.market-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--primary);
+  box-shadow: 0 8px 32px rgba(88, 166, 255, 0.15);
+}
+
+.market-card-img-wrap {
+  position: relative;
+  background: linear-gradient(135deg, #0d1b2a, #1b2838);
+  aspect-ratio: 3/4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.market-card-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+
+.market-card:hover .market-card-img-wrap img { transform: scale(1.05); }
+
+.market-card-no-img {
+  font-size: 52px;
+  opacity: 0.3;
+}
+
+.market-card-price-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: linear-gradient(135deg, var(--primary), #0070f3);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+}
+
+.market-card-body {
+  padding: 10px 12px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.market-card-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.market-card-edition {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.market-card-number {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.market-card-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.market-price-usd {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--primary);
+}
+
+.market-card-idioma {
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--bg);
+  border: 1px solid var(--border-muted);
+  padding: 2px 6px;
+  border-radius: 20px;
+}
+
+/* ── Sell Form Grid ─────────────────────────────────────────────────────────── */
+.modal-lg {
+  max-width: 680px;
+  width: 100%;
+}
+
+.sell-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.sell-price-section {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.sell-price-section .form-group { flex: 1; }
+
+.price-recomendado {
+  flex: 1;
+  background: linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(88, 166, 255, 0.03));
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.price-recomendado .price-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.price-recomendado .price-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.price-recomendado .price-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Listing Detail Modal ───────────────────────────────────────────────────── */
+.listing-detail-layout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 24px;
+}
+
+.listing-detail-img {
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: linear-gradient(135deg, #0d1b2a, #1b2838);
+  aspect-ratio: 3/4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.listing-detail-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.listing-detail-no-img { font-size: 64px; opacity: 0.3; }
+
+.listing-detail-info { display: flex; flex-direction: column; gap: 12px; }
+
+.listing-detail-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.listing-detail-price {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.listing-detail-price .price-clp {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.listing-detail-attrs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.listing-attr {
+  background: var(--bg);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.listing-attr-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.listing-attr-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+.seller-info {
+  background: linear-gradient(135deg, rgba(35, 134, 54, 0.08), rgba(35, 134, 54, 0.03));
+  border: 1px solid rgba(35, 134, 54, 0.3);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.seller-info-title {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.seller-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.seller-info-row span { color: var(--text-muted); font-size: 12px; }
+
+.same-card-count {
+  background: var(--card);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.same-card-count strong { color: var(--primary); }
+
+/* ── Profile Page ───────────────────────────────────────────────────────────── */
+.profile-card {
+  background: var(--card);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  max-width: 540px;
+}
+
+.profile-avatar {
+  width: 72px;
+  height: 72px;
+  background: linear-gradient(135deg, var(--primary), #0070f3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  margin-bottom: 24px;
+}
+
+.profile-email-display {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 6px;
+}
+
+.profile-field-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+/* ── Responsive Market ──────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .market-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .market-grid { grid-template-columns: repeat(3, 1fr); }
+  .sell-form-grid { grid-template-columns: 1fr; }
+  .listing-detail-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .market-grid { grid-template-columns: repeat(2, 1fr); }
+  .sell-price-section { flex-direction: column; }
+}
+
+@media (max-width: 400px) {
+  .market-grid { grid-template-columns: 1fr; }
 }
