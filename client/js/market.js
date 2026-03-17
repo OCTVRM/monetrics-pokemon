@@ -1,97 +1,139 @@
 // ─── Market Module ─────────────────────────────────────────────────────────────
-// Handles all Firestore CRUD for the Community Market listings.
+// Handles all Supabase CRUD for the Community Market listings.
 
-import { db } from './firebase.js';
-import {
-    collection,
-    doc,
-    addDoc,
-    getDoc,
-    getDocs,
-    updateDoc,
-    serverTimestamp,
-    orderBy,
-    query,
-    where,
-    onSnapshot
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { supabase } from './supabase.js';
 
 // ─── Market Listings ───────────────────────────────────────────────────────────
+
+/**
+ * Format DB market listing to UI representation
+ */
+function formatListing(l) {
+    if (!l) return null;
+    return {
+        id: l.id,
+        uid: l.seller_id,
+        nombre: l.nombre,
+        edicion: l.edicion,
+        rareza: l.rareza,
+        numero: l.numero,
+        ilustrador: l.ilustrador,
+        idioma: l.idioma,
+        precio: parseFloat(l.precio) || 0,
+        precioRecomendado: parseFloat(l.precio_recomendado) || 0,
+        imagenUrl: l.imagen_url,
+        estado: l.estado,
+        createdAt: l.created_at
+    };
+}
 
 /**
  * Subscribe to all active market listings.
  * Returns an unsubscribe function.
  */
 export function subscribeToMarketListings(callback) {
-    const q = query(
-        collection(db, 'market'),
-        where('estado', '==', 'activo')
-    );
-    return onSnapshot(q, (snap) => {
-        let listings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Sort locally by createdAt desc to avoid requiring a Firestore composite index
-        listings.sort((a, b) => {
-            const timeA = a.createdAt?.toMillis() || Date.now();
-            const timeB = b.createdAt?.toMillis() || Date.now();
-            return timeB - timeA;
+    // Initial fetch
+    supabase
+        .from('market')
+        .select('*')
+        .eq('estado', 'activo')
+        .order('created_at', { ascending: false })
+        .then(({ data, error }) => {
+            if (error) {
+                console.error('Error fetching market:', error);
+                callback([]);
+                return;
+            }
+            callback((data || []).map(formatListing));
         });
-        callback(listings);
-    }, (err) => {
-        console.error('Error subscribing to market:', err);
-        callback([]);
-    });
+
+    const channel = supabase.channel('public:market')
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'market' },
+            (payload) => {
+                // To keep sorting and filtering logic intact, we just re-fetch all active on any change
+                supabase
+                    .from('market')
+                    .select('*')
+                    .eq('estado', 'activo')
+                    .order('created_at', { ascending: false })
+                    .then(({ data, error }) => {
+                        if (error) {
+                            console.error('Error fetching market on change:', error);
+                            callback([]);
+                            return;
+                        }
+                        callback((data || []).map(formatListing));
+                    });
+            }
+        )
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
 }
 
 /**
  * Get a single market listing by ID.
  */
 export async function getMarketListing(listingId) {
-    const ref = doc(db, 'market', listingId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) throw new Error('Publicación no encontrada');
-    return { id: snap.id, ...snap.data() };
+    const { data, error } = await supabase
+        .from('market')
+        .select('*')
+        .eq('id', listingId)
+        .single();
+    if (error) throw new Error('Publicación no encontrada');
+    return formatListing(data);
 }
 
 /**
  * Create a new market listing.
  */
 export async function createMarketListing(uid, data) {
-    const ref = collection(db, 'market');
-    const docRef = await addDoc(ref, {
-        uid,
-        nombre: data.nombre.trim(),
-        edicion: data.edicion ? data.edicion.trim() : '',
-        rareza: data.rareza ? data.rareza.trim() : '',
-        numero: data.numero ? data.numero.trim() : '',
-        ilustrador: data.ilustrador ? data.ilustrador.trim() : '',
-        idioma: data.idioma || 'Español',
-        precio: parseFloat(data.precio) || 0,
-        precioRecomendado: parseFloat(data.precioRecomendado) || 0,
-        imagenUrl: data.imagenUrl || null,
-        estado: 'activo',
-        createdAt: serverTimestamp()
-    });
-    return docRef.id;
+    const { data: inserted, error } = await supabase
+        .from('market')
+        .insert({
+            seller_id: uid,
+            nombre: data.nombre.trim(),
+            edicion: data.edicion ? data.edicion.trim() : '',
+            rareza: data.rareza ? data.rareza.trim() : '',
+            numero: data.numero ? data.numero.trim() : '',
+            ilustrador: data.ilustrador ? data.ilustrador.trim() : '',
+            idioma: data.idioma || 'Español',
+            precio: parseFloat(data.precio) || 0,
+            precio_recomendado: parseFloat(data.precioRecomendado) || 0,
+            imagen_url: data.imagenUrl || null,
+            estado: 'activo'
+        })
+        .select('id')
+        .single();
+    if (error) throw error;
+    return inserted.id;
 }
 
 /**
  * Get all active listings for the same card name + edition.
  */
 export async function getListingsBySameCard(nombre, edicion) {
-    const q = query(
-        collection(db, 'market'),
-        where('estado', '==', 'activo'),
-        where('nombre', '==', nombre),
-        where('edicion', '==', edicion)
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data, error } = await supabase
+        .from('market')
+        .select('*')
+        .eq('estado', 'activo')
+        .eq('nombre', nombre)
+        .eq('edicion', edicion)
+        .order('precio', { ascending: true }); // A nice touch, order by price!
+
+    if (error) throw error;
+    return (data || []).map(formatListing);
 }
 
 /**
  * Deactivate a listing (soft delete).
  */
 export async function deactivateMarketListing(listingId) {
-    const ref = doc(db, 'market', listingId);
-    await updateDoc(ref, { estado: 'inactivo' });
+    const { error } = await supabase
+        .from('market')
+        .update({ estado: 'inactivo' })
+        .eq('id', listingId);
+    if (error) throw error;
 }

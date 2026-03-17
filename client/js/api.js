@@ -29,9 +29,14 @@ export async function searchCards(query) {
 export async function getConversionRate() {
     try {
         const res = await fetch(`${BASE_URL}/config/rate`);
-        if (!res.ok) return { usdToClp: 900 };
-        return res.json();
-    } catch {
+        if (!res.ok) {
+            console.warn(`Conversion rate API returned ${res.status}, using default 900`);
+            return { usdToClp: 900 };
+        }
+        return await res.json();
+    } catch (err) {
+        console.warn('Error fetching conversion rate, using default 900:', err);
         return { usdToClp: 900 };
     }
 }
+

@@ -14,6 +14,7 @@ import {
   subscribeToMarketListings, createMarketListing,
   getMarketListing, getListingsBySameCard, deactivateMarketListing
 } from './market.js';
+import { store } from './store.js';
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 let currentUser = null;
@@ -23,6 +24,7 @@ let pendingCard = null; // card to add to a deck after selecting
 let authInitialized = false; // Prevents premature redirection on initial page load
 let activeSubscriptions = {}; // Track Firebase onSnapshot listeners for cleanup
 let allMarketListings = []; // Market state for client-side filtering
+let allStoreProducts = [];   // Store state for product detail
 let userProfilesCache = {}; // Cache for seller profiles to avoid redundant fetches
 
 // ─── DOM Refs ──────────────────────────────────────────────────────────────────
@@ -33,25 +35,36 @@ export async function init() {
   // Don't block init on conversion rate
   getConversionRate().then(data => { clpRate = data.usdToClp; });
 
-  // Auth state listener
-  onAuthStateChanged(user => {
+  // Listen to auth state changes.
+  onAuthStateChanged(async user => {
+    // Break potential loop: only proceed if user actually changed
+    if (authInitialized && user?.id === currentUser?.id) return;
+
     console.log('Auth state changed:', user ? user.email : 'null');
     currentUser = user;
-    updateAuthUI(user);
+
     if (user) {
-      ensureUserDocument(user.uid, user.email).catch(console.error);
+      try {
+        const profile = await getUserProfile(user.id);
+        currentUser.role = profile?.role || 'user';
+      } catch (err) {
+        console.warn('Error fetching profile:', err);
+      }
     }
 
-    // Defer initial routing until auth is known, preventing fake logout bugs
+    updateAuthUI(currentUser);
+
+    // Initial routing on load
     if (!authInitialized) {
       authInitialized = true;
-      handleRoute(location.hash || '#search');
+      handleRoute(location.hash || '#home');
     }
   });
 
   // Bind all events
   bindEvents();
 }
+
 
 // ─── Router ────────────────────────────────────────────────────────────────────
 function clearSubscriptions() {
@@ -65,21 +78,37 @@ function handleRoute(hash) {
   const [route, param] = hash.split('/');
   clearSubscriptions();
 
+  console.log('[Router] Routing to:', route, 'with param:', param);
+
   switch (route) {
     case '#home':
-    case '#search':
     case '':
       showPage('page-home');
+      setNavActive('nav-logo'); // or nothing
+      break;
+    case '#search':
+      showPage('page-search-results');
       setNavActive('nav-search');
+      // If there is no query in the search input but we are on #search, 
+      // maybe we should stay on home or show empty results.
+      // Usually, triggerSearch handles this.
       break;
     case '#decks':
-      if (!currentUser) { showToast('Inicia sesión para ver tus barajas', 'warning'); showPage('page-home'); break; }
+      if (!currentUser) {
+        showToast('Inicia sesión para ver tus barajas', 'warning');
+        location.hash = '#home';
+        break;
+      }
       showPage('page-decks');
       setNavActive('nav-decks');
       loadDecksPage();
       break;
     case '#deck':
-      if (!currentUser) { showToast('Inicia sesión para ver esta baraja', 'warning'); showPage('page-home'); break; }
+      if (!currentUser) {
+        showToast('Inicia sesión para ver esta baraja', 'warning');
+        location.hash = '#home';
+        break;
+      }
       showPage('page-deck-detail');
       loadDeckDetailPage(param);
       break;
@@ -88,24 +117,43 @@ function handleRoute(hash) {
       setNavActive('nav-market');
       loadMarketPage();
       break;
+    case '#store':
+      showPage('page-store');
+      setNavActive('nav-store');
+      loadStorePage();
+      break;
     case '#profile':
-      if (!currentUser) { showToast('Inicia sesión para ver tu perfil', 'warning'); showPage('page-home'); break; }
+      if (!currentUser) {
+        showToast('Inicia sesión para ver tu perfil', 'warning');
+        location.hash = '#home';
+        break;
+      }
       showPage('page-profile');
       loadProfilePage();
       break;
     default:
-      showPage('page-home');
+      console.warn('[Router] Unknown route:', route);
+      location.hash = '#home';
   }
 }
+
 
 window.addEventListener('hashchange', () => handleRoute(location.hash));
 
 // ─── Page Visibility ───────────────────────────────────────────────────────────
 function showPage(pageId) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pages = document.querySelectorAll('.page');
+  pages.forEach(p => p.classList.remove('active'));
+
   const page = $(pageId);
-  if (page) page.classList.add('active');
+  if (page) {
+    page.classList.add('active');
+    console.log('Showing page:', pageId);
+  } else {
+    console.error('Page not found:', pageId);
+  }
 }
+
 
 function setNavActive(navId) {
   document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
@@ -118,39 +166,50 @@ function updateAuthUI(user) {
   const guestActions = $('guest-actions');
   const userActions = $('user-actions');
   const userEmail = $('user-email-display');
+  const userRole = $('user-role-display');
   const navDecks = $('nav-decks');
+  const btnCartToggle = $('btn-cart-toggle');
 
   if (user) {
     if (guestActions) guestActions.style.display = 'none';
     if (userActions) userActions.style.display = 'flex';
     if (userEmail) userEmail.textContent = user.email;
+    if (userRole) {
+      if (user.role === 'admin') {
+        userRole.innerHTML = 'Administrador <span class="admin-badge">Admin</span>';
+        document.body.classList.add('user-role-admin');
+      } else {
+        userRole.textContent = 'Usuario registrado';
+        document.body.classList.remove('user-role-admin');
+      }
+    }
     if (navDecks) navDecks.style.display = 'flex';
+    if (btnCartToggle) {
+      btnCartToggle.style.display = 'flex';
+      updateCartBadge();
+    }
     const btnSell = $('btn-sell-card');
     if (btnSell) btnSell.style.display = 'flex';
+    const btnCreateProd = $('btn-create-product');
+    if (btnCreateProd) btnCreateProd.style.display = user.role === 'admin' ? 'block' : 'none';
   } else {
     if (guestActions) guestActions.style.display = 'flex';
     if (userActions) userActions.style.display = 'none';
     if (navDecks) navDecks.style.display = 'none';
+    if (btnCartToggle) btnCartToggle.style.display = 'none';
     const btnSell = $('btn-sell-card');
     if (btnSell) btnSell.style.display = 'none';
+    const btnCreateProd = $('btn-create-product');
+    if (btnCreateProd) btnCreateProd.style.display = 'none';
+    document.body.classList.remove('user-role-admin');
 
-    // If on auth-required page and auth has initialized (not just initial loading delay), redirect
     if (authInitialized && (location.hash.startsWith('#decks') || location.hash.startsWith('#deck') || location.hash.startsWith('#profile'))) {
       location.hash = '#search';
     }
   }
 }
 
-// ─── Event Binding ─────────────────────────────────────────────────────────────
 function bindEvents() {
-  // Navbar search
-  const navInput = $('nav-search-input');
-  const navSearchBtn = $('nav-search-btn');
-  if (navInput) {
-    navInput.addEventListener('keydown', e => { if (e.key === 'Enter') triggerSearch(navInput.value); });
-  }
-  if (navSearchBtn) navSearchBtn.addEventListener('click', () => triggerSearch(navInput?.value));
-
   // Hero search
   const heroInput = $('hero-search-input');
   const heroSearchBtn = $('hero-search-btn');
@@ -226,6 +285,26 @@ function bindEvents() {
   const marketInput = $('market-search-input');
   $('market-search-btn')?.addEventListener('click', () => filterMarket(marketInput?.value));
   marketInput?.addEventListener('keydown', e => { if (e.key === 'Enter') filterMarket(marketInput.value); });
+
+  // Nav - Tienda
+  $('nav-store')?.addEventListener('click', () => { location.hash = '#store'; });
+
+  // Cart
+  $('btn-cart-toggle')?.addEventListener('click', openCartModal);
+  $('cart-modal-close')?.addEventListener('click', () => $('cart-modal-overlay').classList.remove('open'));
+  $('cart-modal-overlay')?.addEventListener('click', e => { if (e.target === $('cart-modal-overlay')) $('cart-modal-overlay').classList.remove('open'); });
+  $('btn-close-cart')?.addEventListener('click', () => $('cart-modal-overlay').classList.remove('open'));
+
+  // Admin Product Modal
+  $('btn-create-product')?.addEventListener('click', () => $('product-modal-overlay').classList.add('open'));
+  $('product-modal-close')?.addEventListener('click', () => $('product-modal-overlay').classList.remove('open'));
+  $('product-modal-cancel')?.addEventListener('click', () => $('product-modal-overlay').classList.remove('open'));
+  $('product-modal-overlay')?.addEventListener('click', e => { if (e.target === $('product-modal-overlay')) $('product-modal-overlay').classList.remove('open'); });
+
+  // Store Detail Modal
+  $('store-details-close')?.addEventListener('click', () => $('store-details-overlay').classList.remove('open'));
+  $('store-details-overlay')?.addEventListener('click', e => { if (e.target === $('store-details-overlay')) $('store-details-overlay').classList.remove('open'); });
+  $('product-form')?.addEventListener('submit', handleProductSubmit);
 }
 
 // ─── Search ────────────────────────────────────────────────────────────────────
@@ -234,7 +313,10 @@ async function triggerSearch(query) {
   location.hash = '#search';
   showPage('page-search-results');
   setNavActive('nav-search');
-  $('nav-search-input').value = query;
+
+  const navInput = $('nav-search-input');
+  if (navInput) navInput.value = query;
+
   renderSearchSkeleton(query);
 
   try {
@@ -516,14 +598,14 @@ async function loadDecksPage() {
   }
 
   // Subscribe for real-time updates (instant if offline/cached)
-  activeSubscriptions.decks = subscribeToUserDecks(currentUser.uid, (decks) => {
+  activeSubscriptions.decks = subscribeToUserDecks(currentUser.id, (decks) => {
     currentDecks = decks;
     renderDecksGrid(decks);
 
     // Silent background sync check for consistency
     const needsSync = decks.filter(d => d.totalCards === undefined || d.totalCards === 0);
     needsSync.forEach(deck => {
-      syncDeckStats(currentUser.uid, deck.id).catch(() => { });
+      syncDeckStats(currentUser.id, deck.id).catch(() => { });
     });
   });
 }
@@ -603,13 +685,13 @@ async function loadDeckDetailPage(deckId) {
       // Consistency check
       const summary = calculateDeckSummary(currentCardsData);
       if (currentDeckData.totalCards !== summary.cardCount) {
-        syncDeckStats(currentUser.uid, deckId).catch(() => { });
+        syncDeckStats(currentUser.id, deckId).catch(() => { });
       }
     }
   }
 
   // Subscribe to deck info
-  activeSubscriptions.deck = subscribeToDeck(currentUser.uid, deckId, (deck) => {
+  activeSubscriptions.deck = subscribeToDeck(currentUser.id, deckId, (deck) => {
     if (!deck) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-title">Baraja no encontrada</div></div>`;
       return;
@@ -618,7 +700,7 @@ async function loadDeckDetailPage(deckId) {
   });
 
   // Subscribe to cards
-  activeSubscriptions.cards = subscribeToDeckCards(currentUser.uid, deckId, (cards) => {
+  activeSubscriptions.cards = subscribeToDeckCards(currentUser.id, deckId, (cards) => {
     handleDataUpdate(null, cards);
   });
 }
@@ -782,7 +864,7 @@ function bindTableActions(initialCards, deckId) {
     if (action === 'remove-card') {
       btn.disabled = true;
       try {
-        await removeCardFromDeck(currentUser.uid, deckIdFromBtn, cardId);
+        await removeCardFromDeck(currentUser.id, deckIdFromBtn, cardId);
         showToast('Carta eliminada', 'success');
         await refreshDeckDetail(deckIdFromBtn);
       } catch (err) {
@@ -793,7 +875,7 @@ function bindTableActions(initialCards, deckId) {
 
     if (action === 'qty-inc') {
       try {
-        await updateCardQuantity(currentUser.uid, deckIdFromBtn, cardId, currentQty + 1);
+        await updateCardQuantity(currentUser.id, deckIdFromBtn, cardId, currentQty + 1);
         await refreshDeckDetail(deckIdFromBtn);
       } catch (err) {
         showToast('Error: ' + err.message, 'error');
@@ -805,7 +887,7 @@ function bindTableActions(initialCards, deckId) {
         if (currentQty <= 1) {
           if (!confirm('¿Eliminar esta carta de la baraja?')) return;
         }
-        await updateCardQuantity(currentUser.uid, deckIdFromBtn, cardId, currentQty - 1);
+        await updateCardQuantity(currentUser.id, deckIdFromBtn, cardId, currentQty - 1);
         await refreshDeckDetail(deckIdFromBtn);
       } catch (err) {
         showToast('Error: ' + err.message, 'error');
@@ -817,8 +899,8 @@ function bindTableActions(initialCards, deckId) {
 async function refreshDeckDetail(deckId) {
   try {
     const [deck, cards] = await Promise.all([
-      getDeck(currentUser.uid, deckId),
-      getDeckCards(currentUser.uid, deckId)
+      getDeck(currentUser.id, deckId),
+      getDeckCards(currentUser.id, deckId)
     ]);
     renderDeckDetail(deck, cards, deckId);
   } catch (err) {
@@ -850,7 +932,7 @@ async function handleCreateDeck(e) {
     console.log('Calling createDeck...');
     // Race with timeout to handle potential Firestore offline hang
     await Promise.race([
-      createDeck(currentUser.uid, { nombre, descripcion }),
+      createDeck(currentUser.id, { nombre, descripcion }),
       new Promise(resolve => setTimeout(resolve, 1500))
     ]);
 
@@ -878,7 +960,7 @@ async function handleDeleteDeck(deckId, redirect = false) {
     const start = Date.now();
     // Race with a timeout to avoid UI hang if sync is slow
     await Promise.race([
-      deleteDeck(currentUser.uid, deckId),
+      deleteDeck(currentUser.id, deckId),
       new Promise(resolve => setTimeout(resolve, 2000))
     ]);
     console.log(`Deck deleted/queued in ${Date.now() - start}ms`);
@@ -911,7 +993,7 @@ async function handleAddToDeck(card) {
   if (currentDecks === null) {
     list.innerHTML = `<div class="empty-state" style="padding:20px"><div class="loading-spinner"></div><div style="margin-top:10px;font-size:13px">Cargando tus barajas...</div></div>`;
     try {
-      currentDecks = await getUserDecks(currentUser.uid);
+      currentDecks = await getUserDecks(currentUser.id);
     } catch (err) {
       list.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-desc">Error: ${escHtml(err.message)}</div></div>`;
       return;
@@ -983,7 +1065,7 @@ async function confirmAddCard(deckId) {
     // 4. Race the addition with a timeout to avoid UI hang
     // Firestore will continue syncing in the background if offline
     await Promise.race([
-      addCardToDeck(currentUser.uid, deckId, cardData),
+      addCardToDeck(currentUser.id, deckId, cardData),
       new Promise(resolve => setTimeout(resolve, 2000))
     ]);
 
@@ -1087,7 +1169,7 @@ function renderMarketGrid(listings) {
       <div class="market-card" data-id="${escHtml(l.id)}" onclick="window._openListing('${escHtml(l.id)}')">
         <div class="market-card-img-wrap">
           ${imgHtml}
-          <span class="market-card-price-badge">$${(+l.precio || 0).toFixed(2)}</span>
+          <span class="market-card-price-badge">CLP $ ${Math.round(+l.precio || 0).toLocaleString('es-CL')}</span>
         </div>
         <div class="market-card-body">
           <div class="market-card-name">${escHtml(l.nombre)}</div>
@@ -1095,7 +1177,7 @@ function renderMarketGrid(listings) {
           <div class="market-card-number">#${escHtml(l.numero || '—')}</div>
         </div>
         <div class="market-card-footer">
-          <span class="market-price-usd">USD $${(+l.precio || 0).toFixed(2)}</span>
+          <span class="market-price-usd">CLP $ ${Math.round(+l.precio || 0).toLocaleString('es-CL')}</span>
           <span class="market-card-idioma">${escHtml(l.idioma || 'ES')}</span>
         </div>
       </div>`;
@@ -1142,8 +1224,7 @@ async function openListingDetail(listingId) {
       <div class="listing-detail-info">
         <div class="listing-detail-name">${escHtml(listing.nombre)}</div>
         <div class="listing-detail-price">
-          USD $${(+listing.precio || 0).toFixed(2)}
-          <span class="price-clp">≈ CLP $${Number(priceClp).toLocaleString('es-CL')}</span>
+          CLP $ ${Math.round(+listing.precio || 0).toLocaleString('es-CL')}
         </div>
         <div class="listing-detail-attrs">
           <div class="listing-attr"><div class="listing-attr-label">Edición</div><div class="listing-attr-value">${escHtml(listing.edicion || '—')}</div></div>
@@ -1180,11 +1261,34 @@ async function openListingDetail(listingId) {
   if (!overlay.classList.contains('open')) return;
   const sellerNick = sellerProfile.nickname || sellerProfile.email || 'Vendedor';
   const sellerCity = sellerProfile.ciudad || '';
+
+  let adminControls = '';
+  if (currentUser && currentUser.role === 'admin') {
+    adminControls = `
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border)">
+        <button class="btn btn-sm" style="background:var(--danger);color:white;width:100%" onclick="window._deleteListing('${escHtml(listing.id)}')">🗑️ Admin: Eliminar Publicación</button>
+      </div>
+    `;
+  }
+
   sellerEl.innerHTML = `
     <div class="seller-info-title">👤 Vendedor</div>
     <div class="seller-info-row">🎮 <span>Nickname:</span> ${escHtml(sellerNick)}</div>
-    ${sellerCity ? `<div class="seller-info-row">📍 <span>Ciudad:</span> ${escHtml(sellerCity)}</div>` : ''}`;
+    ${sellerCity ? `<div class="seller-info-row">📍 <span>Ciudad:</span> ${escHtml(sellerCity)}</div>` : ''}
+    ${adminControls}
+  `;
 }
+
+window._deleteListing = async function (listingId) {
+  if (!confirm('¿Seguro que deseas eliminar esta publicación (Admin)?')) return;
+  try {
+    await deactivateMarketListing(listingId);
+    showToast('Publicación eliminada por administrador.', 'success');
+    closeListingDetail();
+  } catch (err) {
+    showToast('Error al eliminar: ' + err.message, 'error');
+  }
+};
 
 function closeListingDetail() {
   $('listing-detail-overlay')?.classList.remove('open');
@@ -1283,14 +1387,14 @@ async function handleSubmitListing(e) {
   const imgUrl = form?.dataset?.imgUrl || null;
 
   try {
-    await createMarketListing(currentUser.uid, {
+    await createMarketListing(currentUser.id, {
       nombre,
       edicion: $('sell-edicion')?.value?.trim() || '',
       rareza: $('sell-rareza')?.value || '',
       numero: $('sell-numero')?.value?.trim() || '',
       ilustrador: $('sell-ilustrador')?.value?.trim() || '',
       idioma: $('sell-idioma')?.value || 'Español',
-      precio,
+      precio: Math.round(precio),
       precioRecomendado: lastFetchedRecommendedPrice,
       imagenUrl: imgUrl
     });
@@ -1315,7 +1419,7 @@ async function loadProfilePage() {
   container.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:40px"><div class="loading-spinner" style="width:28px;height:28px"></div></div>`;
 
   try {
-    const profile = await getUserProfile(currentUser.uid);
+    const profile = await getUserProfile(currentUser.id);
 
     container.innerHTML = `
       <div class="profile-avatar">👤</div>
@@ -1349,7 +1453,7 @@ async function loadProfilePage() {
       const btn = container.querySelector('[type=submit]');
       if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
       try {
-        await updateUserProfile(currentUser.uid, {
+        await updateUserProfile(currentUser.id, {
           nickname: container.querySelector('#profile-nickname')?.value?.trim() || '',
           ciudad: container.querySelector('#profile-ciudad')?.value?.trim() || ''
         });
@@ -1363,5 +1467,256 @@ async function loadProfilePage() {
     });
   } catch (err) {
     container.innerHTML = `<div style="color:var(--danger);padding:24px">Error cargando perfil: ${escHtml(err.message)}</div>`;
+  }
+}
+// ─── Store & Cart Logic ────────────────────────────────────────────────────────
+async function loadStorePage() {
+  const grid = $('store-grid');
+  grid.innerHTML = '<div class="loading-state">Cargando tienda...</div>';
+
+  try {
+    const products = await store.getProducts();
+    allStoreProducts = products;
+    renderStoreGrid(products);
+  } catch (err) {
+    console.error('Error cargando tienda:', err);
+    grid.innerHTML = '<div class="error-state">Error al cargar los productos de la tienda.</div>';
+  }
+}
+
+function renderStoreGrid(products) {
+  const grid = $('store-grid');
+  if (!products || products.length === 0) {
+    grid.innerHTML = '<div class="empty-state">No hay productos disponibles en este momento.</div>';
+    return;
+  }
+
+  grid.innerHTML = products.map(p => `
+    <article class="store-card" onclick="openStoreProductDetail('${p.id}')">
+      <div class="store-card-image">
+        <img src="${p.imagen_url || 'https://via.placeholder.com/300x200?text=No+Image'}" alt="${p.nombre}">
+      </div>
+      <div class="store-card-body">
+        <h3 class="store-card-title">${p.nombre}</h3>
+        <div class="store-card-price">CLP $ ${Math.round(p.precio).toLocaleString('es-CL')}</div>
+        <p class="store-card-description">${p.descripcion}</p>
+        <div class="store-card-footer">
+          <button class="btn btn-primary w-100" onclick="event.stopPropagation(); handleAddToCart('${p.id}')">🛒 Agregar al Carrito</button>
+        </div>
+      </div>
+      ${currentUser?.role === 'admin' ? `
+        <button class="btn btn-danger btn-sm" style="position:absolute;top:10px;right:10px" onclick="handleDeleteProduct('${p.id}')">🗑️</button>
+      ` : ''}
+    </article>
+  `).join('');
+}
+
+window.openStoreProductDetail = openStoreProductDetail;
+
+async function openStoreProductDetail(productId) {
+  const overlay = $('store-details-overlay');
+  const body = $('store-details-body');
+  if (!overlay || !body) return;
+
+  // Find product in current state
+  const product = allStoreProducts.find(p => p.id === productId);
+  if (!product) return;
+
+  overlay.classList.add('open');
+  body.innerHTML = `
+    <div class="product-detail-layout">
+      <div class="product-detail-img">
+        <img src="${product.imagen_url || 'https://via.placeholder.com/400x300?text=No+Image'}" alt="${product.nombre}">
+      </div>
+      <div class="product-detail-info">
+        <div class="product-detail-info-header">
+          <h2 class="product-detail-name">${product.nombre}</h2>
+          <div class="product-detail-price">CLP $ ${Math.round(product.precio).toLocaleString('es-CL')}</div>
+        </div>
+        <div class="product-detail-description">
+          <p>${product.descripcion || 'Sin descripción disponible.'}</p>
+        </div>
+        <div class="product-detail-actions">
+          <button class="btn btn-primary btn-lg w-100" onclick="handleAddToCart('${product.id}')">🛒 Agregar al Carrito</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.handleAddToCart = async function (productId) {
+  if (!currentUser) {
+    showToast('Inicia sesión para usar el carrito', 'warning');
+    $('auth-modal-overlay').classList.add('open');
+    return;
+  }
+
+  try {
+    await store.addToCart(currentUser.id, productId);
+    showToast('Producto añadido al carrito', 'success');
+    updateCartBadge();
+  } catch (err) {
+    console.error('Error adding to cart:', err);
+    showToast('Error al añadir al carrito', 'danger');
+  }
+};
+
+window.handleDeleteProduct = async function (productId) {
+  if (!confirm('¿Seguro que quieres eliminar este producto de la tienda?')) return;
+  try {
+    await store.deleteProduct(productId);
+    showToast('Producto eliminado', 'success');
+    loadStorePage();
+  } catch (err) {
+    console.error('Error deleting product:', err);
+    showToast('Error al eliminar producto', 'danger');
+  }
+};
+
+async function updateCartBadge() {
+  if (!currentUser) return;
+  try {
+    const items = await store.getCartItems(currentUser.id);
+    const count = items.reduce((acc, item) => acc + item.cantidad, 0);
+    const badge = $('cart-count-badge');
+    if (badge) badge.textContent = count;
+  } catch (err) {
+    console.error('Error updating cart badge:', err);
+  }
+}
+
+async function openCartModal() {
+  const overlay = $('cart-modal-overlay');
+  overlay.classList.add('open');
+
+  const list = $('cart-items-list');
+  list.innerHTML = '<div class="loading-state">Cargando carrito...</div>';
+  $('cart-summary').innerHTML = '';
+
+  try {
+    const items = await store.getCartItems(currentUser.id);
+    renderCart(items);
+  } catch (err) {
+    console.error('Error loading cart:', err);
+    list.innerHTML = '<div class="error-state">Error al cargar el carrito.</div>';
+  }
+}
+
+function renderCart(items) {
+  const list = $('cart-items-list');
+  const summary = $('cart-summary');
+  const footer = $('cart-modal-footer');
+
+  if (!items || items.length === 0) {
+    list.innerHTML = `
+      <div class="empty-cart">
+        <span class="empty-cart-icon">🛒</span>
+        <p>Tu carrito está vacío</p>
+      </div>
+    `;
+    summary.innerHTML = '';
+    footer.style.display = 'none';
+    return;
+  }
+
+  footer.style.display = 'flex';
+
+  let total = 0;
+  list.innerHTML = items.map(item => {
+    const p = item.products;
+    const itemTotal = p.precio * item.cantidad;
+    total += itemTotal;
+
+    return `
+      <div class="cart-item">
+        <div class="cart-item-image">
+          <img src="${p.imagen_url}" alt="${p.nombre}">
+        </div>
+        <div class="cart-item-info">
+          <div class="cart-item-name">${p.nombre}</div>
+          <div class="cart-item-price">CLP $ ${Math.round(p.precio).toLocaleString('es-CL')}</div>
+        </div>
+        <div class="cart-item-actions">
+          <div class="qty-control">
+            <button class="qty-btn" onclick="handleUpdateCartQty('${item.id}', ${item.cantidad - 1})">-</button>
+            <span class="qty-value">${item.cantidad}</span>
+            <button class="qty-btn" onclick="handleUpdateCartQty('${item.id}', ${item.cantidad + 1})">+</button>
+          </div>
+          <button class="btn btn-ghost danger" onclick="handleRemoveFromCart('${item.id}')">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  summary.innerHTML = `
+    <div class="summary-row">
+      <span>Subtotal</span>
+      <span>CLP $ ${Math.round(total).toLocaleString('es-CL')}</span>
+    </div>
+    <div class="summary-row">
+      <span>Envío</span>
+      <span>Calculado en el checkout</span>
+    </div>
+    <div class="summary-row summary-total">
+      <span>Total</span>
+      <span>CLP $ ${Math.round(total).toLocaleString('es-CL')}</span>
+    </div>
+  `;
+}
+
+window.handleUpdateCartQty = async function (itemId, newQty) {
+  try {
+    await store.updateCartItemQuantity(currentUser.id, itemId, newQty);
+    const items = await store.getCartItems(currentUser.id);
+    renderCart(items);
+    updateCartBadge();
+  } catch (err) {
+    console.error('Error updating cart qty:', err);
+  }
+};
+
+window.handleRemoveFromCart = async function (itemId) {
+  try {
+    await store.removeFromCart(currentUser.id, itemId);
+    const items = await store.getCartItems(currentUser.id);
+    renderCart(items);
+    updateCartBadge();
+    showToast('Producto eliminado del carrito', 'success');
+  } catch (err) {
+    console.error('Error removing from cart:', err);
+  }
+};
+
+async function handleProductSubmit(e) {
+  e.preventDefault();
+  const form = $('product-form');
+  const errorEl = $('product-error');
+  const btn = $('btn-product-submit');
+
+  const nombre = $('product-nombre').value.trim();
+  const precio = parseFloat($('product-precio').value);
+  const descripcion = $('product-descripcion').value.trim();
+  const imagen_url = $('product-imagen').value.trim();
+
+  if (!nombre || isNaN(precio) || precio <= 0 || !descripcion || !imagen_url) {
+    errorEl.textContent = 'Por favor completa todos los campos obligatorios y asegúrate de que el precio sea válido.';
+    return;
+  }
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Publicando...';
+    await store.createProduct({ nombre, precio, descripcion, imagen_url });
+
+    showToast('Producto publicado exitosamente', 'success');
+    form.reset();
+    $('product-modal-overlay').classList.remove('open');
+    loadStorePage();
+  } catch (err) {
+    console.error('Error creating product:', err);
+    errorEl.textContent = 'Error al publicar el producto.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📦 Publicar Producto';
   }
 }

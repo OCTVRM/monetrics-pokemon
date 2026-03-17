@@ -1,38 +1,36 @@
-// ─── Auth Module ──────────────────────────────────────────────────────────────
-import { auth, db } from './firebase.js';
-import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged as _onAuthStateChanged
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import {
-    doc,
-    setDoc,
-    serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { supabase } from './supabase.js';
 
 /**
- * Register a new user and create their Firestore profile.
+ * Register a new user
  */
 export async function registerUser(email, password) {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    return cred.user;
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+    });
+    if (error) throw error;
+    // For auto-confirm, data.user is returned. Otherwise we might have to wait for verification.
+    return data.user;
 }
 
 /**
- * Sign in with email and password.
+ * Sign in with email and password
  */
 export async function loginUser(email, password) {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    return cred.user;
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+    });
+    if (error) throw error;
+    return data.user;
 }
 
 /**
  * Sign the current user out.
  */
 export async function logoutUser() {
-    await signOut(auth);
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
 }
 
 /**
@@ -40,12 +38,27 @@ export async function logoutUser() {
  * @param {Function} callback - receives (user | null)
  */
 export function onAuthStateChanged(callback) {
-    return _onAuthStateChanged(auth, callback);
+    // Call it once immediately with current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        callback(session?.user || null);
+    });
+
+    // Then listen for changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (event, session) => {
+            callback(session?.user || null);
+        }
+    );
+
+    // Return unsubscribe function
+    return () => subscription.unsubscribe();
 }
 
 /**
- * Get the current user synchronously.
+ * Get the current user synchronously (returns null if not cached).
+ * Warning: this only checks local session in Supabase.
  */
-export function getCurrentUser() {
-    return auth.currentUser;
+export async function getCurrentUser() {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user;
 }

@@ -1,41 +1,30 @@
 // ─── Decks Module ─────────────────────────────────────────────────────────────
-// Handles all Firestore CRUD for users, decks, and cards.
+// Handles all Supabase CRUD for users, decks, and cards.
 
-import { db } from './firebase.js';
-import {
-    collection,
-    doc,
-    addDoc,
-    setDoc,
-    getDoc,
-    getDocs,
-    deleteDoc,
-    updateDoc,
-    serverTimestamp,
-    orderBy,
-    query,
-    onSnapshot
-} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { supabase } from './supabase.js';
 
 // ─── User Document ─────────────────────────────────────────────────────────────
 
+/**
+ * ensureUserDocument is now handled by a Postgres trigger on auth.users in Supabase.
+ * We keep the function signature as a no-op to not break ui.js.
+ */
 export async function ensureUserDocument(uid, email) {
-    const userRef = doc(db, 'users', uid);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) {
-        await setDoc(userRef, { email, createdAt: serverTimestamp() });
-    }
+    return Promise.resolve();
 }
 
 /**
- * Get user profile data (nickname, ciudad, email).
+ * Get user profile data (nickname, ciudad, email, role).
  */
 export async function getUserProfile(uid) {
     try {
-        const userRef = doc(db, 'users', uid);
-        const snap = await getDoc(userRef);
-        if (!snap.exists()) return {};
-        return snap.data();
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', uid)
+            .single();
+        if (error) throw error;
+        return data || {};
     } catch (err) {
         console.warn("Error in getUserProfile, returning empty:", err);
         return {};
@@ -46,122 +35,190 @@ export async function getUserProfile(uid) {
  * Update user profile fields (nickname, ciudad).
  */
 export async function updateUserProfile(uid, data) {
-    const userRef = doc(db, 'users', uid);
-    await setDoc(userRef, {
-        nickname: data.nickname || '',
-        ciudad: data.ciudad || ''
-    }, { merge: true });
+    const { error } = await supabase
+        .from('users')
+        .update({
+            nickname: data.nickname || '',
+            ciudad: data.ciudad || ''
+        })
+        .eq('id', uid);
+    if (error) throw error;
 }
 
 // ─── Decks CRUD ────────────────────────────────────────────────────────────────
 
 /**
+ * Format a DB deck record into what UI expects.
+ */
+function formatDeck(d) {
+    if (!d) return null;
+    return {
+        id: d.id,
+        nombre: d.nombre,
+        descripcion: d.descripcion,
+        totalCards: d.total_cards,
+        totalValue: d.total_value,
+        createdAt: d.created_at,
+        user_id: d.user_id
+    };
+}
+
+/**
  * Create a new deck for the user.
  */
 export async function createDeck(uid, { nombre, descripcion }) {
-    const decksRef = collection(db, 'users', uid, 'decks');
-    const docRef = await addDoc(decksRef, {
-        nombre: nombre.trim(),
-        descripcion: descripcion ? descripcion.trim() : '',
-        totalCards: 0,
-        totalValue: 0,
-        createdAt: serverTimestamp()
-    });
-    return docRef.id;
+    const { data, error } = await supabase
+        .from('decks')
+        .insert({
+            user_id: uid,
+            nombre: nombre.trim(),
+            descripcion: descripcion ? descripcion.trim() : '',
+            total_cards: 0,
+            total_value: 0
+        })
+        .select('id')
+        .single();
+    if (error) throw error;
+    return data.id;
 }
 
 /**
  * Get all decks for a user.
  */
 export async function getUserDecks(uid) {
-    const decksRef = collection(db, 'users', uid, 'decks');
-    const q = query(decksRef, orderBy('createdAt', 'desc'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data, error } = await supabase
+        .from('decks')
+        .select('*')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data.map(formatDeck);
 }
 
 /**
  * Get a single deck by ID.
  */
 export async function getDeck(uid, deckId) {
-    const deckRef = doc(db, 'users', uid, 'decks', deckId);
-    const snap = await getDoc(deckRef);
-    if (!snap.exists()) throw new Error('Deck not found');
-    return { id: snap.id, ...snap.data() };
+    const { data, error } = await supabase
+        .from('decks')
+        .select('*')
+        .eq('id', deckId)
+        .single();
+    if (error) throw new Error('Deck not found');
+    return formatDeck(data);
 }
 
 /**
  * Subscribe to a single deck.
  */
 export function subscribeToDeck(uid, deckId, callback) {
-    const deckRef = doc(db, 'users', uid, 'decks', deckId);
-    return onSnapshot(deckRef, (snap) => {
-        if (!snap.exists()) {
-            callback(null);
-        } else {
-            callback({ id: snap.id, ...snap.data() });
-        }
-    }, (err) => {
-        console.error('Error subscribing to deck:', err);
-    });
+    // Initial fetch
+    getDeck(uid, deckId).then(callback).catch(() => callback(null));
+
+    const channel = supabase.channel(`deck_${deckId}`)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'decks', filter: `id=eq.${deckId}` },
+            (payload) => {
+                getDeck(uid, deckId).then(callback).catch(() => callback(null));
+            }
+        )
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
 }
 
 /**
  * Subscribe to all decks for a user.
  */
 export function subscribeToUserDecks(uid, callback) {
-    const decksRef = collection(db, 'users', uid, 'decks');
-    const q = query(decksRef, orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snap) => {
-        const decks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        callback(decks);
-    }, (err) => {
-        console.error('Error subscribing to decks:', err);
-    });
+    // Initial fetch
+    getUserDecks(uid).then(callback).catch(() => callback([]));
+
+    const channel = supabase.channel(`user_decks_${uid}`)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'decks', filter: `user_id=eq.${uid}` },
+            (payload) => {
+                getUserDecks(uid).then(callback).catch(() => callback([]));
+            }
+        )
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
 }
 
 /**
- * Delete a deck and all its cards.
+ * Delete a deck and all its cards. (Cascade delete handles cards automatically in PG)
  */
 export async function deleteDeck(uid, deckId) {
-    // Delete all cards first
-    const cardsSnap = await getDocs(collection(db, 'users', uid, 'decks', deckId, 'cards'));
-    const delPromises = cardsSnap.docs.map(d => deleteDoc(d.ref));
-    await Promise.all(delPromises);
-    // Delete the deck document
-    await deleteDoc(doc(db, 'users', uid, 'decks', deckId));
+    const { error } = await supabase
+        .from('decks')
+        .delete()
+        .eq('id', deckId)
+        .eq('user_id', uid);
+    if (error) throw error;
 }
 
 // ─── Cards CRUD ────────────────────────────────────────────────────────────────
 
 /**
+ * Format DB card to UI representation
+ */
+function formatCard(c) {
+    if (!c) return null;
+    return {
+        id: c.id,
+        cardIdAPI: c.card_id,
+        nombre: c.nombre,
+        set: c.set_name,
+        numero: c.numero,
+        imagen: c.image_url,
+        precioUnitario: parseFloat(c.price) || 0,
+        cantidad: c.cantidad,
+        fechaAgregada: c.created_at
+    };
+}
+
+/**
  * Add a card to a deck.
  */
 export async function addCardToDeck(uid, deckId, cardData) {
-    const cardsRef = collection(db, 'users', uid, 'decks', deckId, 'cards');
-    const existingSnap = await getDocs(cardsRef);
-
-    const existingCard = existingSnap.docs.find(
-        d => d.data().cardIdAPI === cardData.cardIdAPI
-    );
+    // Check if card exists in this deck
+    const { data: existing } = await supabase
+        .from('cards')
+        .select('*')
+        .eq('deck_id', deckId)
+        .eq('card_id', cardData.cardIdAPI || '')
+        .single();
 
     let resId;
-    if (existingCard) {
-        const newQty = (existingCard.data().cantidad || 1) + 1;
-        await updateDoc(existingCard.ref, { cantidad: newQty });
-        resId = existingCard.id;
+    if (existing) {
+        const newQty = (existing.cantidad || 1) + 1;
+        const { error } = await supabase
+            .from('cards')
+            .update({ cantidad: newQty })
+            .eq('id', existing.id);
+        if (error) throw error;
+        resId = existing.id;
     } else {
-        const docRef = await addDoc(cardsRef, {
-            cardIdAPI: cardData.cardIdAPI || null,
-            nombre: cardData.nombre,
-            set: cardData.set || 'Unknown',
-            numero: cardData.numero || null,
-            imagen: cardData.imagen || null,
-            precioUnitario: cardData.precioUnitario || 0,
-            cantidad: 1,
-            fechaAgregada: serverTimestamp()
-        });
-        resId = docRef.id;
+        const { data, error } = await supabase
+            .from('cards')
+            .insert({
+                user_id: uid,
+                deck_id: deckId,
+                card_id: cardData.cardIdAPI || '',
+                nombre: cardData.nombre,
+                set_name: cardData.set || 'Unknown',
+                numero: cardData.numero || null,
+                image_url: cardData.imagen || null,
+                price: parseFloat(cardData.precioUnitario) || 0,
+                cantidad: 1
+            })
+            .select('id')
+            .single();
+        if (error) throw error;
+        resId = data.id;
     }
 
     await syncDeckStats(uid, deckId);
@@ -172,7 +229,11 @@ export async function addCardToDeck(uid, deckId, cardData) {
  * Remove a card from a deck completely.
  */
 export async function removeCardFromDeck(uid, deckId, cardId) {
-    await deleteDoc(doc(db, 'users', uid, 'decks', deckId, 'cards', cardId));
+    const { error } = await supabase
+        .from('cards')
+        .delete()
+        .eq('id', cardId);
+    if (error) throw error;
     await syncDeckStats(uid, deckId);
 }
 
@@ -183,7 +244,11 @@ export async function updateCardQuantity(uid, deckId, cardId, cantidad) {
     if (cantidad <= 0) {
         return removeCardFromDeck(uid, deckId, cardId);
     }
-    await updateDoc(doc(db, 'users', uid, 'decks', deckId, 'cards', cardId), { cantidad });
+    const { error } = await supabase
+        .from('cards')
+        .update({ cantidad })
+        .eq('id', cardId);
+    if (error) throw error;
     await syncDeckStats(uid, deckId);
 }
 
@@ -191,24 +256,33 @@ export async function updateCardQuantity(uid, deckId, cardId, cantidad) {
  * Get all cards in a deck.
  */
 export async function getDeckCards(uid, deckId) {
-    const cardsRef = collection(db, 'users', uid, 'decks', deckId, 'cards');
-    const q = query(cardsRef, orderBy('fechaAgregada', 'desc'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data, error } = await supabase
+        .from('cards')
+        .select('*')
+        .eq('deck_id', deckId)
+        .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data.map(formatCard);
 }
 
 /**
  * Subscribe to all cards in a deck.
  */
 export function subscribeToDeckCards(uid, deckId, callback) {
-    const cardsRef = collection(db, 'users', uid, 'decks', deckId, 'cards');
-    const q = query(cardsRef, orderBy('fechaAgregada', 'desc'));
-    return onSnapshot(q, (snap) => {
-        const cards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        callback(cards);
-    }, (err) => {
-        console.error('Error subscribing to cards:', err);
-    });
+    // Initial fetch
+    getDeckCards(uid, deckId).then(callback).catch(() => callback([]));
+
+    const channel = supabase.channel(`deck_cards_${deckId}`)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'cards', filter: `deck_id=eq.${deckId}` },
+            (payload) => {
+                getDeckCards(uid, deckId).then(callback).catch(() => callback([]));
+            }
+        )
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
 }
 
 // ─── Summary Calculation ───────────────────────────────────────────────────────
@@ -219,11 +293,12 @@ export function subscribeToDeckCards(uid, deckId, callback) {
 export async function syncDeckStats(uid, deckId) {
     const cards = await getDeckCards(uid, deckId);
     const summary = calculateDeckSummary(cards);
-    const deckRef = doc(db, 'users', uid, 'decks', deckId);
-    await updateDoc(deckRef, {
-        totalCards: summary.cardCount,
-        totalValue: summary.total
-    });
+
+    await supabase.from('decks').update({
+        total_cards: summary.cardCount,
+        total_value: summary.total || 0
+    }).eq('id', deckId);
+
     return summary;
 }
 

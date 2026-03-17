@@ -17,35 +17,35 @@
 
     <!-- ── NAVBAR ─────────────────────────────────────────────────────────────── -->
     <nav class="navbar">
-      <a class="navbar-brand" href="#home" id="nav-logo">
-        <span class="brand-icon">⚡</span>
-        <span class="brand-text">Monetrics <span>Pokemon</span></span>
-      </a>
+      <div class="navbar-container">
+        <a class="navbar-brand" href="#home" id="nav-logo">
+          <span class="brand-icon">⚡</span>
+          <span class="brand-text">Monetrics <span>Pokemon</span></span>
+        </a>
 
-      <div class="navbar-search">
-        <input type="search" id="nav-search-input" placeholder="Buscar carta Pokémon (nombre o número)..."
-          autocomplete="off" />
-        <button class="search-btn" id="nav-search-btn" aria-label="Buscar">🔍</button>
-      </div>
+        <div class="navbar-actions">
+          <button class="nav-link" id="nav-market" onclick="location.hash='#market'">🏪 <span
+              id="nav-market-text">Mercado
+              Comunitario</span></button>
+          <button class="nav-link" id="nav-store" onclick="location.hash='#store'">🛒 Tienda</button>
+          <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
 
-      <div class="navbar-actions">
-        <button class="nav-link" id="nav-market" onclick="location.hash='#market'">🏪 Mercado</button>
-        <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
+          <!-- Guest actions -->
+          <div id="guest-actions" style="display:flex;gap:8px">
+            <button class="btn btn-outline" id="btn-login">Iniciar sesión</button>
+            <button class="btn btn-primary" id="btn-register">Registrarse</button>
+          </div>
 
-        <!-- Guest actions -->
-        <div id="guest-actions" style="display:flex;gap:8px">
-          <button class="btn btn-outline" id="btn-login">Iniciar sesión</button>
-          <button class="btn btn-primary" id="btn-register">Registrarse</button>
-        </div>
-
-        <!-- Auth user actions -->
-        <div id="user-actions" style="display:none;align-items:center;gap:8px">
+          <!-- Auth user actions -->
+          <button class="btn btn-outline cart-toggle-btn" id="btn-cart-toggle" style="display:none;position:relative">
+            🛒 <span class="cart-count" id="cart-count-badge">0</span>
+          </button>
           <div class="user-menu">
             <button class="user-avatar-btn" id="user-avatar-btn" aria-label="Menú de usuario">👤</button>
             <div class="user-dropdown" id="user-dropdown">
               <div class="user-info">
                 <div class="user-email" id="user-email-display">usuario@email.com</div>
-                <div class="user-label">Usuario registrado</div>
+                <div class="user-label" id="user-role-display">Usuario registrado</div>
               </div>
               <button class="dropdown-item" onclick="location.hash='#decks'">📦 Mis Barajas</button>
               <button class="dropdown-item" onclick="location.hash='#profile'">👤 Mi Perfil</button>
@@ -134,7 +134,8 @@
           </div>
           <div class="market-header-actions">
             <div class="market-search-bar">
-              <input type="search" id="market-search-input" placeholder="Buscar por nombre o edición..." autocomplete="off" />
+              <input type="search" id="market-search-input" placeholder="Buscar por nombre o edición..."
+                autocomplete="off" />
               <button class="search-btn" id="market-search-btn" aria-label="Buscar">🔍</button>
             </div>
             <button class="btn btn-primary" id="btn-sell-card" style="display:none">🏷️ Vender carta</button>
@@ -142,6 +143,21 @@
         </div>
         <div class="market-grid" id="market-grid">
           <!-- Market cards injected by JS -->
+        </div>
+      </div>
+
+      <!-- STORE PAGE -->
+      <div class="page" id="page-store">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🛒 Tienda Oficial</div>
+            <div class="section-subtitle">Productos exclusivos de Monetrics</div>
+          </div>
+          <button class="btn btn-primary" id="btn-create-product" style="display:none">＋ Publicar Producto
+            (Admin)</button>
+        </div>
+        <div class="store-grid" id="store-grid">
+          <!-- Products injected by JS -->
         </div>
       </div>
 
@@ -175,11 +191,13 @@
         <div class="sell-form-grid">
           <div class="form-group">
             <label class="form-label" for="sell-nombre">Nombre de la carta *</label>
-            <input class="form-input" type="text" id="sell-nombre" placeholder="Ej: Charizard" required maxlength="100" />
+            <input class="form-input" type="text" id="sell-nombre" placeholder="Ej: Charizard" required
+              maxlength="100" />
           </div>
           <div class="form-group">
             <label class="form-label" for="sell-edicion">Edición *</label>
-            <input class="form-input" type="text" id="sell-edicion" placeholder="Ej: Base Set, Fossil..." required maxlength="100" />
+            <input class="form-input" type="text" id="sell-edicion" placeholder="Ej: Base Set, Fossil..." required
+              maxlength="100" />
           </div>
           <div class="form-group">
             <label class="form-label" for="sell-rareza">Rareza</label>
@@ -221,8 +239,8 @@
         </div>
         <div class="sell-price-section">
           <div class="form-group">
-            <label class="form-label" for="sell-precio">Tu precio (USD) *</label>
-            <input class="form-input" type="number" id="sell-precio" placeholder="0.00" min="0" step="0.01" required />
+            <label class="form-label" for="sell-precio">Tu precio (CLP) *</label>
+            <input class="form-input" type="number" id="sell-precio" placeholder="0" min="0" step="1" required />
           </div>
           <div class="price-recomendado" id="sell-price-suggestion">
             <!-- Price suggestion injected by JS -->
@@ -246,6 +264,19 @@
       </div>
       <div class="modal-body" id="listing-detail-body">
         <!-- Listing detail injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STORE PRODUCT DETAIL MODAL ────────────────────────────────────────── -->
+  <div class="modal-overlay" id="store-details-overlay">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="store-details-title">
+      <div class="modal-header">
+        <span class="modal-title" id="store-details-title">📦 Detalle del Producto</span>
+        <button class="modal-close" id="store-details-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body" id="store-details-body">
+        <!-- Content injected by JS -->
       </div>
     </div>
   </div>
@@ -349,16 +380,60 @@
     </div>
   </div>
 
-  <!-- ── CARD DETAIL MODAL (placeholder) ───────────────────────────────────── -->
-  <div class="modal-overlay" id="card-modal-overlay">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="card-modal-title">
+  <!-- ── CART MODAL ────────────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="cart-modal-overlay">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="cart-modal-title">
       <div class="modal-header">
-        <span class="modal-title" id="card-modal-title">🃏 Detalle de carta</span>
-        <button class="modal-close" id="card-modal-close" aria-label="Cerrar">×</button>
+        <span class="modal-title" id="cart-modal-title">🛒 Carrito de Compras</span>
+        <button class="modal-close" id="cart-modal-close" aria-label="Cerrar">×</button>
       </div>
-      <div class="modal-body" id="card-modal-body">
-        <!-- Card detail injected by JS -->
+      <div class="modal-body">
+        <div id="cart-items-list" class="cart-items-list">
+          <!-- Cart items injected by JS -->
+        </div>
+        <div class="cart-summary" id="cart-summary">
+          <!-- Summary injected by JS -->
+        </div>
       </div>
+      <div class="modal-footer" id="cart-modal-footer">
+        <button type="button" class="btn btn-outline" id="cart-modal-close-btn">Seguir comprando</button>
+        <button type="button" class="btn btn-primary" id="btn-checkout">Proceder al pago</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CREATE PRODUCT MODAL (ADMIN) ────────────────────────────────────────── -->
+  <div class="modal-overlay" id="product-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+      <div class="modal-header">
+        <span class="modal-title" id="product-modal-title">📦 Publicar Nuevo Producto</span>
+        <button class="modal-close" id="product-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="product-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="product-nombre">Nombre del producto *</label>
+          <input class="form-input" type="text" id="product-nombre" placeholder="Ej: Ultra Ball Edition Box" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="product-precio">Precio (CLP) *</label>
+          <input class="form-input" type="number" id="product-precio" placeholder="0" min="0" step="1" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="product-descripcion">Descripción *</label>
+          <textarea class="form-input" id="product-descripcion" placeholder="Descripción extensa del producto..."
+            required rows="4"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="product-imagen">URL de la imagen *</label>
+          <input class="form-input" type="url" id="product-imagen" placeholder="https://ejemplo.com/imagen.jpg"
+            required />
+        </div>
+        <p class="form-error" id="product-error"></p>
+        <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
+          <button type="button" class="btn btn-outline" id="product-modal-cancel">Cancelar</button>
+          <button type="submit" id="btn-product-submit" class="btn btn-primary">📦 Publicar Producto</button>
+        </div>
+      </form>
     </div>
   </div>
 

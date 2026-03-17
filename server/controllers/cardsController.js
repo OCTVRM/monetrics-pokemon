@@ -9,27 +9,27 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
  * Normalize a raw card object from pokemonpricetracker.com API
  */
 function normalizeCard(raw) {
-    // The API may return nested price objects — handle gracefully
-    const prices = raw.prices || raw.marketData || {};
-    const market = prices.market || prices.tcgplayer || prices.marketPrice || {};
+    // The API uses 'variants' for market data and 'tcgplayer' for links
+    const variants = raw.variants || {};
+    const variantKeys = Object.keys(variants);
+
+    // Pick the first available variant (e.g., 'Normal', 'Holofoil') to extract prices
+    const mainVariant = variantKeys.length > 0 ? variants[variantKeys[0]] : {};
 
     const avgPrice =
-        market.avg ||
-        market.marketPrice ||
-        market.mid ||
+        mainVariant.marketPrice ||
+        mainVariant.price ||
         raw.price ||
         raw.marketPrice ||
         null;
 
     const highPrice =
-        market.high ||
-        market.highPrice ||
+        mainVariant.highPrice ||
         raw.highPrice ||
         null;
 
     const lowPrice =
-        market.low ||
-        market.lowPrice ||
+        mainVariant.lowPrice ||
         raw.lowPrice ||
         null;
 
@@ -39,7 +39,8 @@ function normalizeCard(raw) {
         set: raw.set?.name || raw.setName || raw.set || 'Unknown Set',
         number: raw.number || raw.cardNumber || null,
         rarity: raw.rarity || null,
-        image: raw.images?.large || raw.images?.small || raw.image || raw.imageUrl || null,
+        // Use CDN URLs for better reliability
+        image: raw.imageCdnUrl || raw.imageCdnUrl400 || raw.images?.large || raw.image || raw.imageUrl || null,
         avgPrice: avgPrice ? parseFloat(avgPrice) : null,
         highPrice: highPrice ? parseFloat(highPrice) : null,
         lowPrice: lowPrice ? parseFloat(lowPrice) : null,

@@ -25,3 +25,9 @@ firebase-debug.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Build & Temporary
+.vite/
+tmp/
+node_modules/
+dist/
