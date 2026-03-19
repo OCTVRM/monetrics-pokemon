@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monetrics Pokemon — TCG Price Tracker</title>
+  <title>Monetrics TCG — Price Tracker</title>
   <meta name="description"
     content="Consulta precios de cartas Pokémon TCG en tiempo real. Crea y gestiona tus colecciones con valoración automática." />
   <link rel="icon"
@@ -20,7 +20,7 @@
       <div class="navbar-container">
         <a class="navbar-brand" href="#home" id="nav-logo">
           <span class="brand-icon">⚡</span>
-          <span class="brand-text">Monetrics <span>Pokemon</span></span>
+          <span class="brand-text">Monetrics <span>TCG</span></span>
         </a>
 
         <div class="navbar-actions">
@@ -37,6 +37,10 @@
           </div>
 
           <!-- Auth user actions -->
+          <button class="nav-link" id="nav-chat" onclick="location.hash='#chat'" style="display:none;position:relative"
+            title="Mis Mensajes">
+            💬 <span class="cart-count" id="chat-count-badge" style="display:none">!</span>
+          </button>
           <button class="btn btn-outline cart-toggle-btn" id="btn-cart-toggle" style="display:none;position:relative">
             🛒 <span class="cart-count" id="cart-count-badge">0</span>
           </button>
@@ -132,11 +136,14 @@
             <div class="section-title">🏪 Mercado de Comunidad</div>
             <div class="section-subtitle">Cartas publicadas por la comunidad</div>
           </div>
-          <div class="market-header-actions">
-            <div class="market-search-bar">
-              <input type="search" id="market-search-input" placeholder="Buscar por nombre o edición..."
-                autocomplete="off" />
+          <div class="market-header-actions" style="gap:12px;flex-wrap:wrap">
+            <div class="market-search-bar" style="max-width:300px">
+              <input type="search" id="market-search-input" placeholder="Nombre o edición..." autocomplete="off" />
               <button class="search-btn" id="market-search-btn" aria-label="Buscar">🔍</button>
+            </div>
+            <div class="market-search-bar" style="max-width:300px">
+              <input type="search" id="market-seller-search-input" placeholder="Vendedor (nick/email)..."
+                autocomplete="off" />
             </div>
             <button class="btn btn-primary" id="btn-sell-card" style="display:none">🏷️ Vender carta</button>
           </div>
@@ -171,6 +178,29 @@
         </div>
         <div class="profile-card" id="profile-content">
           <!-- Profile form injected by JS -->
+        </div>
+      </div>
+
+      <!-- CHAT PAGE -->
+      <div class="page" id="page-chat">
+        <div class="section-header">
+          <div>
+            <div class="section-title">💬 Mis Mensajes</div>
+            <div class="section-subtitle">Conversaciones con otros entrenadores</div>
+          </div>
+        </div>
+        <div id="chat-container-layout">
+          <!-- Chat list and messages injected by JS -->
+        </div>
+      </div>
+
+      <!-- PUBLIC PROFILE PAGE -->
+      <div class="page" id="page-user-profile">
+        <div class="back-row">
+          <button class="back-btn" onclick="history.back()">← Volver</button>
+        </div>
+        <div id="user-profile-content">
+          <!-- Public profile injected by JS -->
         </div>
       </div>
 
@@ -236,6 +266,10 @@
               <option value="Coreano">Coreano</option>
             </select>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="sell-cantidad">Cantidad *</label>
+            <input class="form-input" type="number" id="sell-cantidad" value="1" min="1" step="1" required />
+          </div>
         </div>
         <div class="sell-price-section">
           <div class="form-group">
@@ -285,7 +319,7 @@
   <div class="modal-overlay" id="auth-modal-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
       <div class="modal-header">
-        <span class="modal-title" id="auth-modal-title">⚡ Monetrics Pokemon</span>
+        <span class="modal-title" id="auth-modal-title">⚡ Monetrics TCG</span>
         <button class="modal-close" id="auth-modal-close" aria-label="Cerrar">×</button>
       </div>
       <div class="modal-tabs">

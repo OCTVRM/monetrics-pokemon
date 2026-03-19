@@ -2,6 +2,7 @@
 // Handles all Supabase CRUD for the Community Market listings.
 
 import { supabase } from './supabase.js';
+import { getPublicProfile } from './decks.js';
 
 // ─── Market Listings ───────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ function formatListing(l) {
         precioRecomendado: parseFloat(l.precio_recomendado) || 0,
         imagenUrl: l.imagen_url,
         estado: l.estado,
+        cantidad: l.cantidad || 1,
         createdAt: l.created_at
     };
 }
@@ -100,6 +102,7 @@ export async function createMarketListing(uid, data) {
             numero: data.numero ? data.numero.trim() : '',
             ilustrador: data.ilustrador ? data.ilustrador.trim() : '',
             idioma: data.idioma || 'Español',
+            cantidad: data.cantidad || 1,
             precio: parseFloat(data.precio) || 0,
             precio_recomendado: parseFloat(data.precioRecomendado) || 0,
             imagen_url: data.imagenUrl || null,
@@ -136,4 +139,42 @@ export async function deactivateMarketListing(listingId) {
         .update({ estado: 'inactivo' })
         .eq('id', listingId);
     if (error) throw error;
+}
+
+/**
+ * Search market listings by seller nickname or email.
+ */
+export async function searchListingsBySeller(query) {
+    if (!query || query.trim().length < 2) return [];
+
+    const searchTerm = query.trim();
+
+    // First, find users matching nickname or email
+    const { data: users, error: uError } = await supabase
+        .from('users')
+        .select('id')
+        .or(`nickname.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+
+    if (uError) throw uError;
+    if (!users || users.length === 0) return [];
+
+    const userIds = users.map(u => u.id);
+
+    // Then find their active listings
+    const { data, error } = await supabase
+        .from('market')
+        .select('*')
+        .eq('estado', 'activo')
+        .in('seller_id', userIds)
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map(formatListing);
+}
+
+/**
+ * Convenience wrapper for getting a seller's public profile.
+ */
+export async function getSellerProfile(sellerId) {
+    return getPublicProfile(sellerId);
 }

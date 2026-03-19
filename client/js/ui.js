@@ -8,12 +8,18 @@ import {
   addCardToDeck, removeCardFromDeck, updateCardQuantity,
   getDeckCards, calculateDeckSummary, ensureUserDocument,
   syncDeckStats, subscribeToUserDecks, subscribeToDeck, subscribeToDeckCards,
-  getUserProfile, updateUserProfile
+  getUserProfile, updateUserProfile, getPublicProfile
 } from './decks.js';
 import {
   subscribeToMarketListings, createMarketListing,
-  getMarketListing, getListingsBySameCard, deactivateMarketListing
+  getMarketListing, getListingsBySameCard, deactivateMarketListing,
+  searchListingsBySeller
 } from './market.js';
+import {
+  getConversations, getOrCreateConversation, getMessages,
+  sendMessage, subscribeToMessages, getConversationById, subscribeToNewConversations
+} from './chat.js';
+import { submitReview, getUserReviews } from './reviews.js';
 import { store } from './store.js';
 
 // ─── State ─────────────────────────────────────────────────────────────────────
@@ -131,6 +137,19 @@ function handleRoute(hash) {
       showPage('page-profile');
       loadProfilePage();
       break;
+    case '#chat':
+      if (!currentUser) {
+        showToast('Inicia sesión para ver tus mensajes', 'warning');
+        location.hash = '#home';
+        break;
+      }
+      showPage('page-chat');
+      loadChatPage(param);
+      break;
+    case '#user':
+      showPage('page-user-profile');
+      loadPublicProfilePage(param);
+      break;
     default:
       console.warn('[Router] Unknown route:', route);
       location.hash = '#home';
@@ -184,6 +203,8 @@ function updateAuthUI(user) {
       }
     }
     if (navDecks) navDecks.style.display = 'flex';
+    const navChat = $('nav-chat');
+    if (navChat) navChat.style.display = 'flex';
     if (btnCartToggle) {
       btnCartToggle.style.display = 'flex';
       updateCartBadge();
@@ -196,6 +217,8 @@ function updateAuthUI(user) {
     if (guestActions) guestActions.style.display = 'flex';
     if (userActions) userActions.style.display = 'none';
     if (navDecks) navDecks.style.display = 'none';
+    const navChat = $('nav-chat');
+    if (navChat) navChat.style.display = 'none';
     if (btnCartToggle) btnCartToggle.style.display = 'none';
     const btnSell = $('btn-sell-card');
     if (btnSell) btnSell.style.display = 'none';
@@ -283,8 +306,22 @@ function bindEvents() {
 
   // Market search
   const marketInput = $('market-search-input');
-  $('market-search-btn')?.addEventListener('click', () => filterMarket(marketInput?.value));
-  marketInput?.addEventListener('keydown', e => { if (e.key === 'Enter') filterMarket(marketInput.value); });
+  const marketSellerInput = $('market-seller-search-input');
+  const triggerMarketSearch = async () => {
+    const q = marketInput?.value?.trim();
+    const sq = marketSellerInput?.value?.trim();
+    if (sq) {
+      const results = await searchListingsBySeller(sq);
+      renderMarketGrid(results);
+    } else if (q) {
+      filterMarket(q);
+    } else {
+      renderMarketGrid(allMarketListings);
+    }
+  };
+  $('market-search-btn')?.addEventListener('click', triggerMarketSearch);
+  marketInput?.addEventListener('keydown', e => { if (e.key === 'Enter') triggerMarketSearch(); });
+  marketSellerInput?.addEventListener('keydown', e => { if (e.key === 'Enter') triggerMarketSearch(); });
 
   // Nav - Tienda
   $('nav-store')?.addEventListener('click', () => { location.hash = '#store'; });
@@ -1193,90 +1230,101 @@ async function openListingDetail(listingId) {
   if (!overlay || !body) return;
 
   overlay.classList.add('open');
+  body.innerHTML = `<div style="padding:40px;text-align:center"><div class="loading-spinner"></div></div>`;
 
-  // 1. Get listing: prefer local state, fall back to Firestore
-  let listing = allMarketListings.find(l => l.id === listingId);
-  if (!listing) {
-    body.innerHTML = `<div style="text-align:center;padding:40px"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
-    try {
-      listing = await getMarketListing(listingId);
-    } catch (err) {
-      body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--danger)">Error: ${escHtml(err.message)}</div>`;
-      return;
-    }
+  try {
+    const listing = allMarketListings.find(l => l.id === listingId);
+    if (!listing) throw new Error('Publicación no encontrada');
+
+    const seller = await getUserProfile(listing.uid);
+    const isOwner = currentUser && (currentUser.id === listing.uid);
+
+    const sameCardsCount = allMarketListings.filter(l =>
+      l.id !== listingId &&
+      l.nombre === listing.nombre &&
+      l.edicion === listing.edicion
+    ).length + 1;
+
+    const imgHtml = listing.imagenUrl
+      ? `<img src="${escHtml(listing.imagenUrl)}" alt="${escHtml(listing.nombre)}">`
+      : `<span class="listing-detail-no-img">🃏</span>`;
+
+    body.innerHTML = `
+      <div class="listing-detail-layout">
+        <div class="listing-detail-img">${imgHtml}</div>
+        <div class="listing-detail-info">
+          <div class="listing-detail-name">${escHtml(listing.nombre)}</div>
+          <div class="listing-detail-price">
+            CLP $ ${Math.round(+listing.precio || 0).toLocaleString('es-CL')}
+          </div>
+          <div class="listing-detail-attrs">
+            <div class="listing-attr"><div class="listing-attr-label">Edición</div><div class="listing-attr-value">${escHtml(listing.edicion || '—')}</div></div>
+            <div class="listing-attr"><div class="listing-attr-label">Rareza</div><div class="listing-attr-value">${escHtml(listing.rareza || '—')}</div></div>
+            <div class="listing-attr"><div class="listing-attr-label">N° de carta</div><div class="listing-attr-value">${escHtml(listing.numero || '—')}</div></div>
+            <div class="listing-attr"><div class="listing-attr-label">Idioma</div><div class="listing-attr-value">${escHtml(listing.idioma || '—')}</div></div>
+          </div>
+          
+          <div class="seller-info" style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid rgba(255,255,255,0.05)">
+            <div class="seller-info-title" style="font-weight:700;margin-bottom:8px">👤 Vendedor</div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <a href="#user/${seller.id}" onclick="closeListingDetail()" style="color:var(--primary);text-decoration:none;font-weight:600">${escHtml(seller.nickname || seller.email)}</a>
+                <div style="font-size:0.75rem;opacity:0.7">${escHtml(seller.ciudad || 'Ubicación no disponible')}</div>
+              </div>
+              <a href="#user/${seller.id}" onclick="closeListingDetail()" class="btn btn-sm btn-outline" style="font-size:0.7rem">Ver Perfil</a>
+            </div>
+          </div>
+
+          <div class="listing-actions" style="margin-top:24px;display:flex;gap:12px;align-items:center">
+            ${isOwner ? `
+              <button class="btn btn-danger" onclick="window._deleteListing('${listing.id}')" style="flex:1">Eliminar publicación</button>
+            ` : `
+               <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;white-space:nowrap">
+                 Cantidad:
+                 <input type="number" id="buyer-quantity" min="1" max="${listing.cantidad || 1}" value="1" style="width:60px;padding:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.2);color:#fff;border-radius:4px" />
+               </label>
+              <button class="btn btn-primary" id="btn-contact-seller" style="flex:1">💬 Contactar al vendedor</button>
+            `}
+          </div>
+
+          <div class="same-card-count" style="margin-top:16px;font-size:0.8rem;opacity:0.6">
+            <strong>${sameCardsCount}</strong> publicación(es) de esta carta disponible(s)
+          </div>
+        </div>
+      </div>`;
+
+    $('btn-contact-seller')?.addEventListener('click', async (e) => {
+      if (!currentUser) {
+        showToast("Debes iniciar sesión para contactar al vendedor", 'warning');
+        openAuthModal('login');
+        return;
+      }
+      const btn = e.currentTarget;
+      const qtyInput = $('buyer-quantity');
+      const qty = qtyInput ? parseInt(qtyInput.value, 10) || 1 : 1;
+
+      if (qty > (listing.cantidad || 1)) {
+        showToast("No puedes comprar más de las unidades publicadas (" + (listing.cantidad || 1) + ").", 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading-spinner"></span> Iniciando chat...';
+      try {
+        const conv = await getOrCreateConversation(listing.id, listing.uid, listing, qty);
+        closeListingDetail();
+        location.hash = `#chat/${conv.id}`;
+      } catch (err) {
+        showToast("Error al iniciar chat: " + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = '💬 Contactar al vendedor';
+      }
+    });
+
+  } catch (err) {
+    console.error('Error loading listing detail:', err);
+    body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--danger)">Error: ${escHtml(err.message)}</div>`;
   }
-
-  // 2. Render card data immediately — no waiting for profile
-  const sameCardsCount = allMarketListings.filter(l =>
-    l.id !== listingId &&
-    l.nombre === listing.nombre &&
-    l.edicion === listing.edicion
-  ).length + 1;
-
-  const priceClp = ((+listing.precio || 0) * clpRate).toFixed(0);
-  const imgHtml = listing.imagenUrl
-    ? `<img src="${escHtml(listing.imagenUrl)}" alt="${escHtml(listing.nombre)}">`
-    : `<span class="listing-detail-no-img">🃏</span>`;
-
-  body.innerHTML = `
-    <div class="listing-detail-layout">
-      <div class="listing-detail-img">${imgHtml}</div>
-      <div class="listing-detail-info">
-        <div class="listing-detail-name">${escHtml(listing.nombre)}</div>
-        <div class="listing-detail-price">
-          CLP $ ${Math.round(+listing.precio || 0).toLocaleString('es-CL')}
-        </div>
-        <div class="listing-detail-attrs">
-          <div class="listing-attr"><div class="listing-attr-label">Edición</div><div class="listing-attr-value">${escHtml(listing.edicion || '—')}</div></div>
-          <div class="listing-attr"><div class="listing-attr-label">Rareza</div><div class="listing-attr-value">${escHtml(listing.rareza || '—')}</div></div>
-          <div class="listing-attr"><div class="listing-attr-label">N° de carta</div><div class="listing-attr-value">${escHtml(listing.numero || '—')}</div></div>
-          <div class="listing-attr"><div class="listing-attr-label">Ilustrador</div><div class="listing-attr-value">${escHtml(listing.ilustrador || '—')}</div></div>
-          <div class="listing-attr"><div class="listing-attr-label">Idioma</div><div class="listing-attr-value">${escHtml(listing.idioma || '—')}</div></div>
-        </div>
-        <div class="seller-info" id="seller-info-${listingId}">
-          <div class="seller-info-title">👤 Vendedor</div>
-          <div style="color:var(--text-faint);font-size:13px">Cargando vendedor...</div>
-        </div>
-        <div class="same-card-count">
-          <strong>${sameCardsCount}</strong> publicación(es) de esta carta disponible(s) en el mercado
-        </div>
-      </div>
-    </div>`;
-
-  // 3. Load seller profile asynchronously and update the seller section
-  const sellerEl = body.querySelector(`#seller-info-${listingId}`);
-  if (!sellerEl) return;
-
-  let sellerProfile = userProfilesCache[listing.uid];
-  if (!sellerProfile) {
-    try {
-      sellerProfile = await getUserProfile(listing.uid);
-      userProfilesCache[listing.uid] = sellerProfile;
-    } catch (_) {
-      sellerProfile = { nickname: 'Vendedor', ciudad: '' };
-    }
-  }
-
-  // Only update if the modal is still open and showing this listing
-  if (!overlay.classList.contains('open')) return;
-  const sellerNick = sellerProfile.nickname || sellerProfile.email || 'Vendedor';
-  const sellerCity = sellerProfile.ciudad || '';
-
-  let adminControls = '';
-  if (currentUser && currentUser.role === 'admin') {
-    adminControls = `
-      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border)">
-        <button class="btn btn-sm" style="background:var(--danger);color:white;width:100%" onclick="window._deleteListing('${escHtml(listing.id)}')">🗑️ Admin: Eliminar Publicación</button>
-      </div>
-    `;
-  }
-
-  sellerEl.innerHTML = `
-    <div class="seller-info-title">👤 Vendedor</div>
-    <div class="seller-info-row">🎮 <span>Nickname:</span> ${escHtml(sellerNick)}</div>
-    ${sellerCity ? `<div class="seller-info-row">📍 <span>Ciudad:</span> ${escHtml(sellerCity)}</div>` : ''}
-    ${adminControls}
-  `;
 }
 
 window._deleteListing = async function (listingId) {
@@ -1293,6 +1341,8 @@ window._deleteListing = async function (listingId) {
 function closeListingDetail() {
   $('listing-detail-overlay')?.classList.remove('open');
 }
+// Expose for inline onclick handlers in dynamically generated HTML
+window.closeListingDetail = closeListingDetail;
 
 // ─── Sell Modal ────────────────────────────────────────────────────────────────
 let lastFetchedRecommendedPrice = 0;
@@ -1394,6 +1444,7 @@ async function handleSubmitListing(e) {
       numero: $('sell-numero')?.value?.trim() || '',
       ilustrador: $('sell-ilustrador')?.value?.trim() || '',
       idioma: $('sell-idioma')?.value || 'Español',
+      cantidad: parseInt($('sell-cantidad')?.value) || 1,
       precio: Math.round(precio),
       precioRecomendado: lastFetchedRecommendedPrice,
       imagenUrl: imgUrl
@@ -1434,6 +1485,12 @@ async function loadProfilePage() {
             value="${escHtml(profile.nickname || '')}"
             placeholder="Tu nombre de usuario" maxlength="40" />
         </div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label" for="profile-phone">Número de teléfono</label>
+          <input class="form-input" type="text" id="profile-phone"
+            value="${escHtml(profile.phone_number || '')}"
+            placeholder="Ej: +56 9 1234 5678" maxlength="20" />
+        </div>
         <div class="form-group" style="margin-bottom:20px">
           <label class="form-label" for="profile-ciudad">Ciudad</label>
           <input class="form-input" type="text" id="profile-ciudad"
@@ -1455,6 +1512,7 @@ async function loadProfilePage() {
       try {
         await updateUserProfile(currentUser.id, {
           nickname: container.querySelector('#profile-nickname')?.value?.trim() || '',
+          phone_number: container.querySelector('#profile-phone')?.value?.trim() || '',
           ciudad: container.querySelector('#profile-ciudad')?.value?.trim() || ''
         });
         showToast('Perfil actualizado correctamente ✅', 'success');
@@ -1718,5 +1776,308 @@ async function handleProductSubmit(e) {
   } finally {
     btn.disabled = false;
     btn.textContent = '📦 Publicar Producto';
+  }
+}
+
+// ─── CHAT & MESSAGING ────────────────────────────────────────────────────────
+
+async function loadChatPage(conversationId = null) {
+  const container = $('chat-container-layout');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="chat-layout">
+      <div class="chat-sidebar" id="chat-sidebar">
+        <div style="padding:20px;text-align:center"><div class="loading-spinner"></div></div>
+      </div>
+      <div class="chat-main" id="chat-main">
+        <div class="chat-empty-state">
+          <div style="font-size:48px;margin-bottom:16px">💬</div>
+          <h3>Selecciona una conversación</h3>
+          <p>Tus mensajes aparecerán aquí cuando compres o alguien quiera comprar tus cartas.</p>
+        </div>
+      </div>
+    </div>`;
+
+  try {
+    const convs = await getConversations();
+    let activeConv = convs.find(c => c.id === conversationId);
+
+    // If conversationId refers to a brand-new conversation not yet in the list, fetch it directly
+    if (conversationId && !activeConv) {
+      activeConv = await getConversationById(conversationId);
+      if (activeConv) convs.unshift(activeConv);
+    }
+
+    renderConversationList(convs, conversationId);
+
+    if (activeConv) {
+      renderActiveChat(activeConv);
+    }
+
+    // Subscribe to new incoming conversations (when another user contacts this user as seller)
+    if (currentUser) {
+      const unsubNewConvs = subscribeToNewConversations(currentUser.id, (newConv) => {
+        // Add to top of list if not already present
+        const sidebar = $('chat-sidebar');
+        if (!sidebar) return;
+        showToast(`💬 Nueva conversación de ${newConv.buyer?.nickname || newConv.buyer?.email || 'Un usuario'}`, 'info');
+        // Re-render the sidebar by prepending the new convo
+        convs.unshift(newConv);
+        renderConversationList(convs, conversationId);
+      });
+      activeSubscriptions['seller_new_convs'] = unsubNewConvs;
+    }
+  } catch (err) {
+    console.error("Error loading chat page:", err);
+  }
+}
+
+function renderConversationList(convs, activeId) {
+  const sidebar = $('chat-sidebar');
+  if (!sidebar) return;
+
+  if (!convs || convs.length === 0) {
+    sidebar.innerHTML = `<div style="padding:40px;text-align:center;opacity:0.6;font-size:0.9rem">No tienes conversaciones aún.</div>`;
+    return;
+  }
+
+  sidebar.innerHTML = `
+    <div class="conv-list">
+      ${convs.map(c => {
+    const isSelected = c.id === activeId ? 'active' : '';
+    const partner = currentUser.id === c.buyer_id ? c.seller : c.buyer;
+    const lastMsg = c.lastMessage;
+    const lastMsgText = lastMsg ? escHtml(lastMsg.content.length > 42 ? lastMsg.content.slice(0, 42) + '…' : lastMsg.content) : '<em style="opacity:0.5">Sin mensajes aún</em>';
+    const lastMsgDate = lastMsg ? formatConvDate(lastMsg.created_at) : '';
+    const isMine = lastMsg && lastMsg.sender_id === currentUser.id;
+    let senderPrefix = '';
+    if (lastMsg) {
+      senderPrefix = isMine ? 'Tú: ' : (partner?.nickname || partner?.email || 'Usuario') + ': ';
+    }
+    return `
+          <div class="conv-item ${isSelected}" onclick="location.hash='#chat/${c.id}'">
+            <div class="conv-avatar">👤</div>
+            <div class="conv-info">
+              <div class="conv-header-row" style="display:flex;justify-content:space-between;align-items:baseline;gap:4px">
+                <div class="conv-partner" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${escHtml(partner?.nickname || partner?.email || 'Usuario')}</div>
+                ${lastMsgDate ? `<div class="conv-date" style="font-size:0.7rem;opacity:0.5;white-space:nowrap;flex-shrink:0">${lastMsgDate}</div>` : ''}
+              </div>
+              <div class="conv-last-msg" style="font-size:0.78rem;opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px"><span style="font-weight:600;opacity:0.8">${escHtml(senderPrefix)}</span>${lastMsgText}</div>
+            </div>
+          </div>
+        `;
+  }).join('')}
+    </div>`;
+}
+
+function formatConvDate(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  // Check if same year
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' });
+  }
+  return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+async function renderActiveChat(conv) {
+  const main = $('chat-main');
+  if (!main) return;
+
+  const partner = currentUser.id === conv.buyer_id ? conv.seller : conv.buyer;
+
+  main.innerHTML = `
+    <div class="chat-active-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="conv-avatar">👤</div>
+        <div>
+          <div style="font-weight:700">${escHtml(partner?.nickname || partner?.email || 'Usuario')}</div>
+          <div style="font-size:0.75rem;opacity:0.7">Negociando: ${escHtml(conv.listing?.nombre)}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <a href="#user/${partner?.id}" class="btn btn-outline btn-sm">Ver Perfil</a>
+        ${currentUser.id === conv.buyer_id ? `<button class="btn btn-primary btn-sm" id="btn-finish-deal">Finalizar y Calificar</button>` : ''}
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-messages-box">
+      <div style="padding:40px;text-align:center"><div class="loading-spinner"></div></div>
+    </div>
+    <form class="chat-input-area" id="chat-send-form">
+      <input type="text" id="chat-msg-input" placeholder="Escribe un mensaje..." autocomplete="off" />
+      <button type="submit" class="btn btn-primary">Enviar</button>
+    </form>
+  `;
+
+  try {
+    const messages = await getMessages(conv.id);
+    displayMessages(messages);
+
+    activeSubscriptions[`chat_${conv.id}`]?.();
+    const unsub = subscribeToMessages(conv.id, (newMsg) => {
+      appendMessage(newMsg);
+    });
+    activeSubscriptions[`chat_${conv.id}`] = unsub;
+  } catch (err) {
+    console.error("Error loading messages:", err);
+  }
+
+  $('chat-send-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('chat-msg-input');
+    const content = input.value.trim();
+    if (!content) return;
+    input.value = '';
+    try {
+      await sendMessage(conv.id, content);
+    } catch (err) {
+      showToast("Error al enviar: " + err.message, 'error');
+    }
+  });
+
+  $('btn-finish-deal')?.addEventListener('click', () => openReviewModal(conv));
+}
+
+function displayMessages(messages) {
+  const box = $('chat-messages-box');
+  if (!box) return;
+  box.innerHTML = messages.map(renderMessageHTML).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function appendMessage(msg) {
+  const box = $('chat-messages-box');
+  if (!box) return;
+  const div = document.createElement('div');
+  div.innerHTML = renderMessageHTML(msg);
+  box.appendChild(div.firstElementChild);
+  box.scrollTop = box.scrollHeight;
+}
+
+function renderMessageHTML(msg) {
+  const isMe = msg.sender_id === currentUser.id;
+  const senderName = msg.sender?.nickname || msg.sender?.email || (isMe ? 'Tú' : 'Usuario');
+  const msgDate = msg.created_at
+    ? new Date(msg.created_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+  return `
+    <div class="msg-row ${isMe ? 'msg-me' : 'msg-them'}">
+      <div class="msg-sender-name">${escHtml(isMe ? 'Tú' : senderName)}</div>
+      <div class="msg-bubble">${escHtml(msg.content)}</div>
+      <div class="msg-time">${msgDate}</div>
+    </div>
+  `;
+}
+
+function openReviewModal(conv) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'review-modal';
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Calificar vendedor</span>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+      </div>
+      <div class="modal-body">
+        <p>¿Qué te pareció la transacción con <b>${escHtml(conv.seller?.nickname || conv.seller?.email || 'Vendedor')}</b>?</p>
+        <div class="rating-stars" style="display:flex;gap:8px;margin:20px 0;justify-content:center;font-size:2rem;cursor:pointer">
+          <span data-v="1">☆</span><span data-v="2">☆</span><span data-v="3">☆</span><span data-v="4">☆</span><span data-v="5">☆</span>
+        </div>
+        <textarea id="review-comment" class="form-input" placeholder="Escribe un comentario opcional..." rows="3"></textarea>
+        <div class="modal-footer" style="padding:1rem 0 0 0;border:none">
+          <button class="btn btn-primary" id="btn-submit-review" style="width:100%" disabled>Enviar Calificación</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  let selectedRating = 0;
+  const stars = modal.querySelectorAll('.rating-stars span');
+  stars.forEach(s => {
+    s.addEventListener('click', () => {
+      selectedRating = parseInt(s.dataset.v);
+      stars.forEach((st, i) => st.textContent = i < selectedRating ? '★' : '☆');
+      modal.querySelector('#btn-submit-review').disabled = false;
+    });
+  });
+
+  modal.querySelector('#btn-submit-review').addEventListener('click', async () => {
+    const comment = modal.querySelector('#review-comment').value;
+    try {
+      await submitReview(conv.seller_id, conv.id, selectedRating, comment);
+      showToast("¡Gracias por tu calificación!", 'success');
+      modal.remove();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+async function loadPublicProfilePage(uid) {
+  const container = $('user-profile-content');
+  if (!container) return;
+
+  container.innerHTML = `<div style="padding:60px;text-align:center"><div class="loading-spinner"></div></div>`;
+
+  try {
+    const profile = await getPublicProfile(uid);
+    const reviews = await getUserReviews(uid);
+
+    container.innerHTML = `
+      <div class="public-profile-card">
+        <div class="profile-header-main" style="display:flex;gap:20px;align-items:center;margin-bottom:30px">
+          <div class="profile-avatar-large" style="font-size:3rem;background:rgba(255,255,255,0.05);width:80px;height:80px;display:flex;align-items:center;justify-content:center;border-radius:50%">👤</div>
+          <div class="profile-meta">
+            <h2 style="margin:0">${escHtml(profile.nickname || 'Entrenador')}</h2>
+            <div style="opacity:0.7">${escHtml(profile.email)}</div>
+            <div class="rating-badge" style="margin-top:8px;background:rgba(255,193,7,0.1);color:#ffc107;padding:4px 12px;border-radius:20px;display:inline-block;font-weight:700">
+              ${profile.totalReviews > 0 ? `⭐ ${profile.avgRating.toFixed(1)} (${profile.totalReviews} valoraciones)` : 'Sin valoraciones aún'}
+            </div>
+          </div>
+        </div>
+        
+        <div class="profile-details-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:32px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.1)">
+          <div>
+            <div style="font-size:0.8rem;opacity:0.6;margin-bottom:4px">Ciudad</div>
+            <div style="font-weight:600">${escHtml(profile.ciudad || 'No especificada')}</div>
+          </div>
+          <div>
+            <div style="font-size:0.8rem;opacity:0.6;margin-bottom:4px">Teléfono de contacto</div>
+            <div style="font-weight:600">${escHtml(profile.phone_number || 'No especificado')}</div>
+          </div>
+          <div style="grid-column:1/-1">
+            <div style="font-size:0.8rem;opacity:0.6;margin-bottom:4px">Miembro desde</div>
+            <div style="font-weight:600">${new Date(profile.created_at).toLocaleDateString()}</div>
+          </div>
+        </div>
+
+        <div class="profile-reviews-section" style="margin-top:40px">
+          <h3 style="margin-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">Valoraciones</h3>
+          <div class="reviews-list">
+            ${reviews.map(r => `
+              <div class="review-item" style="padding:16px;background:rgba(255,255,255,0.03);border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.05)">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                  <span style="font-weight:600;color:var(--primary)">${escHtml(r.reviewer?.nickname || 'Usuario')}</span>
+                  <span style="color:#ffc107">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span>
+                </div>
+                <p style="margin:0;font-size:0.9rem;opacity:0.8;line-height:1.5">${escHtml(r.comment || 'Sin comentario.')}</p>
+                <div style="font-size:0.75rem;opacity:0.5;margin-top:8px">${new Date(r.created_at).toLocaleDateString()}</div>
+              </div>
+            `).join('') || '<p style="opacity:0.5;text-align:center;padding:20px">Nadie ha calificado a este usuario todavía.</p>'}
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<div style="padding:40px;color:var(--danger)">Error al cargar perfil: ${escHtml(err.message)}</div>`;
   }
 }

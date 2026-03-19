@@ -32,14 +32,44 @@ export async function getUserProfile(uid) {
 }
 
 /**
+ * Get public profile data (nickname, ciudad, role, phone_number) and aggregate rating.
+ */
+export async function getPublicProfile(uid) {
+    try {
+        const { data: user, error: uError } = await supabase
+            .from('users')
+            .select('id, email, nickname, ciudad, phone_number, created_at')
+            .eq('id', uid)
+            .single();
+        if (uError) throw uError;
+
+        const { data: reviews, error: rError } = await supabase
+            .from('reviews')
+            .select('rating')
+            .eq('reviewee_id', uid);
+
+        let avgRating = 0;
+        if (reviews && reviews.length > 0) {
+            avgRating = reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length;
+        }
+
+        return { ...user, avgRating, totalReviews: reviews?.length || 0 };
+    } catch (err) {
+        console.error("Error in getPublicProfile:", err);
+        throw err;
+    }
+}
+
+/**
  * Update user profile fields (nickname, ciudad).
  */
 export async function updateUserProfile(uid, data) {
     const { error } = await supabase
         .from('users')
         .update({
-            nickname: data.nickname || '',
-            ciudad: data.ciudad || ''
+            nickname: (data.nickname || '').trim(),
+            ciudad: (data.ciudad || '').trim(),
+            phone_number: (data.phone_number || '').trim()
         })
         .eq('id', uid);
     if (error) throw error;
