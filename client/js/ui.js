@@ -1543,29 +1543,47 @@ function bindProfileEvents() {
     });
   });
 
-  $('btn-add-address')?.addEventListener('click', async () => {
-    const defaultAddress = {
-      nombre_direccion: prompt("Nombre de la dirección (ej: Casa, Trabajo):"),
-      pais: "Chile",
-      region: prompt("Región (ej: Metropolitana):"),
-      comuna: prompt("Comuna (ej: Santiago):"),
-      calle_avenida: prompt("Calle o Avenida:"),
-      numero: prompt("Número (ej: 1234):"),
-      piso: prompt("Piso (opcional):") || null,
-      depto_oficina: prompt("Depto/Oficina (opcional):") || null,
-      referencia_adicional: prompt("Referencia adicional (opcional):") || null
-    };
+  // Modal de Dirección
+  $('btn-add-address')?.addEventListener('click', () => {
+    const modal = $('address-modal-overlay');
+    if (modal) {
+      modal.classList.add('open');
+      $('address-form')?.reset();
+    }
+  });
 
-    if (defaultAddress.nombre_direccion && defaultAddress.region && defaultAddress.comuna && defaultAddress.calle_avenida && defaultAddress.numero) {
-      try {
-        await addUserAddress(currentUser.id, defaultAddress);
-        showToast('Dirección agregada', 'success');
-        loadUserAddresses();
-      } catch (e) {
-        showToast('Error agregando dirección', 'error');
-      }
-    } else {
-      showToast('Debe ingresar los campos obligatorios para la dirección', 'warning');
+  $('address-modal-close')?.addEventListener('click', () => $('address-modal-overlay')?.classList.remove('open'));
+  $('address-modal-cancel')?.addEventListener('click', () => $('address-modal-overlay')?.classList.remove('open'));
+  $('address-modal-overlay')?.addEventListener('click', e => {
+    if (e.target === $('address-modal-overlay')) $('address-modal-overlay').classList.remove('open');
+  });
+
+  $('address-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('btn-address-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+    try {
+      const addressData = {
+        nombre_direccion: $('addr-name')?.value || '',
+        pais: 'Chile',
+        region: $('addr-region')?.value || '',
+        comuna: $('addr-comuna')?.value || '',
+        calle_avenida: $('addr-calle')?.value || '',
+        numero: $('addr-numero')?.value || '',
+        piso: $('addr-piso')?.value || null,
+        depto_oficina: $('addr-depto')?.value || null,
+        referencia_adicional: $('addr-referencia')?.value || null
+      };
+      await addUserAddress(currentUser.id, addressData);
+      showToast('Dirección agregada ✅', 'success');
+      $('address-modal-overlay')?.classList.remove('open');
+      loadUserAddresses();
+    } catch (err) {
+      const errEl = $('address-error');
+      if (errEl) errEl.textContent = err.message;
+      showToast('Error agregando dirección: ' + err.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Dirección'; }
     }
   });
 }

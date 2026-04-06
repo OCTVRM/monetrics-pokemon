@@ -178,8 +178,7 @@
         </div>
         <div class="profile-card" id="profile-content">
           <!-- Profile Navigation Tabs -->
-          <ul class="profile-tabs" id="profile-tabs"
-            style="display:flex; gap:16px; border-bottom:1px solid var(--border-color); margin-bottom:20px; padding:0; list-style:none; overflow-x:auto;">
+          <ul class="profile-tabs" id="profile-tabs">
             <li><button class="profile-tab-btn active" data-target="tab-generales">Datos Generales</button></li>
             <li><button class="profile-tab-btn" data-target="tab-avatar">Avatar</button></li>
             <li><button class="profile-tab-btn" data-target="tab-personal">Información Personal</button></li>
@@ -617,6 +616,63 @@
         <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
           <button type="button" class="btn btn-outline" id="product-modal-cancel">Cancelar</button>
           <button type="submit" id="btn-product-submit" class="btn btn-primary">📦 Publicar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── ADD ADDRESS MODAL ─────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="address-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="address-modal-title">
+      <div class="modal-header">
+        <span class="modal-title" id="address-modal-title">📍 Agregar Nueva Dirección</span>
+        <button class="modal-close" id="address-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="address-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="addr-name">Nombre de la dirección *</label>
+          <input class="form-input" type="text" id="addr-name" placeholder="Ej: Casa, Trabajo, Casa de mis padres..."
+            required />
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="addr-region">Región *</label>
+            <input class="form-input" type="text" id="addr-region" placeholder="Ej: Metropolitana" required />
+          </div>
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="addr-comuna">Comuna *</label>
+            <input class="form-input" type="text" id="addr-comuna" placeholder="Ej: Providencia" required />
+          </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="form-group" style="flex:2">
+            <label class="form-label" for="addr-calle">Calle o Avenida *</label>
+            <input class="form-input" type="text" id="addr-calle" placeholder="Ej: Av. Los Leones" required />
+          </div>
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="addr-numero">Número *</label>
+            <input class="form-input" type="text" id="addr-numero" placeholder="Ej: 1234" required />
+          </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="addr-piso">Piso (Opcional)</label>
+            <input class="form-input" type="text" id="addr-piso" placeholder="Ej: 5" />
+          </div>
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="addr-depto">Depto/Oficina (Opcional)</label>
+            <input class="form-input" type="text" id="addr-depto" placeholder="Ej: A" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="addr-referencia">Referencia adicional (Opcional)</label>
+          <textarea class="form-input" id="addr-referencia" placeholder="Ej: Portón de madera, dejar en conserjería..."
+            rows="2"></textarea>
+        </div>
+        <p class="form-error" id="address-error"></p>
+        <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
+          <button type="button" class="btn btn-outline" id="address-modal-cancel">Cancelar</button>
+          <button type="submit" id="btn-address-submit" class="btn btn-primary">💾 Guardar Dirección</button>
         </div>
       </form>
     </div>

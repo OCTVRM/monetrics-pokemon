@@ -350,6 +350,44 @@ textarea {
   background: var(--danger-glow);
 }
 
+/* ── Profile Tabs ──────────────────────────────────────────────────────────── */
+.profile-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-muted);
+  margin-bottom: 24px;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.profile-tab-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 12px 16px;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.profile-tab-btn:hover:not(.active) {
+  color: var(--text);
+  border-bottom-color: var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.profile-tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background: var(--primary-glow);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
 /* ── Main Content ──────────────────────────────────────────────────────────── */
 .main-content {
   flex: 1;
