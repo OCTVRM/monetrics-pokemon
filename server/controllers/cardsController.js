@@ -1,144 +1,116 @@
 const fetch = require('node-fetch');
+const https = require('https');
 
-// Simple in-memory cache for search results
-// Key: query string, Value: { data, timestamp }
+// In-memory cache: key → { data, timestamp }
 const searchCache = new Map();
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 60 * 60 * 1000; // 1 hora
+
+// Agente HTTPS con soporte IPv4 forzado (evita timeouts por IPv6 en algunos entornos)
+const httpsAgent = new https.Agent({ family: 4 });
+
+// Detecta si la query es un código de carta (ej: sv4-100, xy1-12, base1-4, swsh9-150)
+const CARD_CODE_REGEX = /^[a-z0-9]+-\d+$/i;
 
 /**
- * Normalize a raw card object from pokemonpricetracker.com API
+ * Normaliza una carta proveniente de api.pokemontcg.io
  */
 function normalizeCard(raw) {
-    // The API uses 'variants' for market data and 'tcgplayer' for links
-    const variants = raw.variants || {};
-    const variantKeys = Object.keys(variants);
+    const prices = raw.tcgplayer?.prices || {};
+    const variantPrices = Object.values(prices);
+    const mainVariant = variantPrices.length > 0 ? variantPrices[0] : {};
 
-    // Pick the first available variant (e.g., 'Normal', 'Holofoil') to extract prices
-    const mainVariant = variantKeys.length > 0 ? variants[variantKeys[0]] : {};
-
-    const avgPrice =
-        mainVariant.marketPrice ||
-        mainVariant.price ||
-        raw.price ||
-        raw.marketPrice ||
-        null;
-
-    const highPrice =
-        mainVariant.highPrice ||
-        raw.highPrice ||
-        null;
-
-    const lowPrice =
-        mainVariant.lowPrice ||
-        raw.lowPrice ||
-        null;
+    const avgPrice = mainVariant.market || mainVariant.mid || null;
+    const highPrice = mainVariant.high || null;
+    const lowPrice = mainVariant.low || null;
 
     return {
-        id: raw.id || raw.cardId || null,
+        id: raw.id || null,
         name: raw.name || 'Unknown',
-        set: raw.set?.name || raw.setName || raw.set || 'Unknown Set',
-        number: raw.number || raw.cardNumber || null,
+        set: raw.set?.name || 'Unknown Set',
+        setId: raw.set?.id || null,
+        number: raw.number || null,
         rarity: raw.rarity || null,
-        // Use CDN URLs for better reliability
-        image: raw.imageCdnUrl || raw.imageCdnUrl400 || raw.images?.large || raw.image || raw.imageUrl || null,
+        image: raw.images?.large || raw.images?.small || null,
         avgPrice: avgPrice ? parseFloat(avgPrice) : null,
         highPrice: highPrice ? parseFloat(highPrice) : null,
         lowPrice: lowPrice ? parseFloat(lowPrice) : null,
-        lastUpdated: raw.updatedAt || raw.lastUpdated || new Date().toISOString(),
+        lastUpdated: raw.tcgplayer?.updatedAt || new Date().toISOString(),
     };
 }
 
 /**
- * GET /api/cards/search?q=
+ * Llama a api.pokemontcg.io con los parámetros indicados
+ */
+async function fetchFromOfficialAPI(queryString, pageSize = 20) {
+    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryString)}&orderBy=-set.releaseDate&pageSize=${pageSize}`;
+    const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        agent: httpsAgent,
+        timeout: 15000,
+    });
+    if (!response.ok) {
+        throw new Error(`Pokemon TCG API respondió con ${response.status}`);
+    }
+    const data = await response.json();
+    return (data.data || []).map(normalizeCard);
+}
+
+/**
+ * GET /api/cards/search?q=<nombre o código>
+ *
+ * - Si q coincide con formato de código (ej: sv4-100): busca la carta exacta por ID.
+ * - Si q es un nombre: retorna las 20 cartas más recientes del Pokémon indicado.
+ * - Caché en memoria de 1 hora por query.
  */
 exports.searchCards = async (req, res) => {
     const { q } = req.query;
 
-    if (!q || q.trim().length === 0) {
-        return res.status(400).json({ error: 'Query parameter "q" is required.' });
+    if (!q || !q.trim()) {
+        return res.status(400).json({ error: 'Se requiere el parámetro "q".' });
     }
 
-    const apiKey = process.env.POKEMON_API_KEY;
-    if (!apiKey || apiKey === 'your_key_here') {
-        return res.status(503).json({
-            error: 'API key not configured.',
-            message: 'Please set POKEMON_API_KEY in the server .env file.',
-        });
-    }
+    const rawQuery = q.trim();
+    const cacheKey = rawQuery.toLowerCase();
 
-    const baseUrl = process.env.POKEMON_API_BASE_URL || 'https://www.pokemonpricetracker.com/api/v2';
-    const url = `${baseUrl}/cards?search=${encodeURIComponent(q.trim())}&limit=20`;
-
-    // Check cache first
-    const cacheKey = q.trim().toLowerCase();
+    // Servir desde caché si está vigente
     const cached = searchCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-        console.log(`[Cache Hit] Serving results for: "${cacheKey}"`);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return res.json(cached.data);
     }
 
     try {
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-            timeout: 10000,
-        });
+        let results = [];
 
-        if (response.status === 401) {
-            return res.status(401).json({ error: 'Invalid or expired API key.' });
-        }
+        if (CARD_CODE_REGEX.test(rawQuery)) {
+            // ── Búsqueda por CÓDIGO exacto ──────────────────────────────────────
+            // Buscamos la carta cuyo id coincida exactamente, ej: id:sv4-100
+            results = await fetchFromOfficialAPI(`id:${rawQuery.toLowerCase()}`, 1);
 
-        if (response.status === 429) {
-            const errorText = await response.text();
-            console.warn(`[API Rate Limit] 429 hit for: "${cacheKey}". Response:`, errorText);
-            // Fallback to stale cache if available
-            if (cached) {
-                console.log(`[Cache Fallback] Serving stale data for: "${cacheKey}"`);
-                return res.json(cached.data);
+            if (results.length === 0) {
+                // Fallback: búsqueda por número y set parcial  
+                const [setCode, num] = rawQuery.toLowerCase().split('-');
+                results = await fetchFromOfficialAPI(`number:${num} set.id:${setCode}`, 1);
             }
-            return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+        } else {
+            // ── Búsqueda por NOMBRE ─────────────────────────────────────────────
+            // Traemos las 20 cartas más recientes cuyo nombre coincida
+            results = await fetchFromOfficialAPI(`name:"${rawQuery}"`, 20);
         }
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Pokemon API error ${response.status}:`, errorText);
-            return res.status(502).json({
-                error: 'Pokemon Price Tracker API error.',
-                statusCode: response.status,
-            });
-        }
-
-        const data = await response.json();
-
-        // The API may return { data: [...] } or directly an array
-        const rawCards = Array.isArray(data) ? data : (data.data || data.cards || data.results || []);
-
-        if (!rawCards.length) {
-            return res.json({ results: [], total: 0, query: q });
-        }
-
-        const normalized = rawCards.map(normalizeCard);
         const result = {
-            results: normalized,
-            total: normalized.length,
-            query: q,
+            results,
+            total: results.length,
+            query: rawQuery,
         };
 
-        // Save to cache
-        searchCache.set(cacheKey, {
-            data: result,
-            timestamp: Date.now()
-        });
-
+        // Guardar en caché
+        searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
         return res.json(result);
+
     } catch (err) {
-        console.error('Error calling Pokemon Price Tracker API:', err.message);
+        console.error('[cardsController] Error:', err.message);
         return res.status(500).json({
-            error: 'Failed to reach Pokemon Price Tracker API.',
+            error: 'No se pudo conectar con la API de Pokémon TCG.',
             message: err.message,
         });
     }

@@ -173,11 +173,158 @@
         <div class="section-header">
           <div>
             <div class="section-title">👤 Mi Perfil</div>
-            <div class="section-subtitle">Datos que verán los compradores cuando publiques cartas</div>
+            <div class="section-subtitle">Gestiona toda tu información de cuenta y vendedor</div>
           </div>
         </div>
         <div class="profile-card" id="profile-content">
-          <!-- Profile form injected by JS -->
+          <!-- Profile Navigation Tabs -->
+          <ul class="profile-tabs" id="profile-tabs"
+            style="display:flex; gap:16px; border-bottom:1px solid var(--border-color); margin-bottom:20px; padding:0; list-style:none; overflow-x:auto;">
+            <li><button class="profile-tab-btn active" data-target="tab-generales">Datos Generales</button></li>
+            <li><button class="profile-tab-btn" data-target="tab-avatar">Avatar</button></li>
+            <li><button class="profile-tab-btn" data-target="tab-personal">Información Personal</button></li>
+            <li><button class="profile-tab-btn" data-target="tab-direccion">Direcciones</button></li>
+            <li><button class="profile-tab-btn" data-target="tab-bancario">Datos Bancarios</button></li>
+            <li><button class="profile-tab-btn" data-target="tab-redes">Redes Sociales</button></li>
+          </ul>
+
+          <div id="profile-tabs-content">
+            <!-- Pestaña 1: Datos Generales -->
+            <div class="profile-tab-panel active" id="tab-generales">
+              <form id="form-perfil-generales" class="perfil-form">
+                <div class="form-group">
+                  <label class="form-label" for="prof-fullname">Nombre completo</label>
+                  <input class="form-input" type="text" id="prof-fullname" placeholder="Ej: Ash Ketchum"
+                    maxlength="100" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-nickname">Nick de usuario</label>
+                  <input class="form-input" type="text" id="prof-nickname" placeholder="Tu alias en el mercado..."
+                    maxlength="50" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-email">Correo electrónico (solo lectura)</label>
+                  <input class="form-input" type="email" id="prof-email" readonly disabled />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-ciudad">Ciudad</label>
+                  <input class="form-input" type="text" id="prof-ciudad" placeholder="Tu ciudad..." maxlength="100" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-additional">Datos adicionales</label>
+                  <textarea class="form-input" id="prof-additional" placeholder="Alguna descripción sobre ti..."
+                    rows="3"></textarea>
+                </div>
+                <p class="form-error" id="prof-generales-error"></p>
+                <div style="margin-top:20px"><button type="submit" class="btn btn-primary">💾 Guardar Datos
+                    Generales</button></div>
+              </form>
+            </div>
+
+            <!-- Pestaña 2: Avatar -->
+            <div class="profile-tab-panel" id="tab-avatar" style="display:none">
+              <form id="form-perfil-avatar" class="perfil-form">
+                <div class="form-group">
+                  <label class="form-label">Avatar actual</label>
+                  <img id="prof-avatar-preview" src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="Tu Avatar"
+                    style="width:120px; height:120px; border-radius:50%; object-fit:cover; display:block; margin-bottom:12px; background:var(--card-bg)">
+
+                  <label class="form-label" for="prof-avatar-url">URL de nueva imagen</label>
+                  <input class="form-input" type="url" id="prof-avatar-url"
+                    placeholder="https://ejemplo.com/mifoto.jpg" />
+                  <p style="font-size:12px; color:var(--text-muted); margin-top:4px">Introduce la URL de una imagen
+                    pública. (Funcionalidad de subida directa se implementará a futuro).</p>
+                </div>
+                <p class="form-error" id="prof-avatar-error"></p>
+                <div style="margin-top:20px"><button type="submit" class="btn btn-primary">💾 Actualizar Avatar</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Pestaña 3: Información Personal -->
+            <div class="profile-tab-panel" id="tab-personal" style="display:none">
+              <form id="form-perfil-personal" class="perfil-form">
+                <div class="form-group">
+                  <label class="form-label" for="prof-rut">RUT Chileno</label>
+                  <input class="form-input" type="text" id="prof-rut" placeholder="Ej: 12.345.678-9" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-phone">Teléfono de contacto</label>
+                  <input class="form-input" type="text" id="prof-phone" placeholder="Ej: +56912345678" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-personal-email">Correo electrónico personal</label>
+                  <input class="form-input" type="email" id="prof-personal-email"
+                    placeholder="Otro correo alternativo..." />
+                </div>
+                <p class="form-error" id="prof-personal-error"></p>
+                <div style="margin-top:20px"><button type="submit" class="btn btn-primary">💾 Guardar Información
+                    Personal</button></div>
+              </form>
+            </div>
+
+            <!-- Pestaña 4: Direcciones -->
+            <div class="profile-tab-panel" id="tab-direccion" style="display:none">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="margin:0">Mis Direcciones</h3>
+                <button class="btn btn-primary" id="btn-add-address" type="button">＋ Agregar dirección</button>
+              </div>
+              <div id="address-list" style="display:flex; flex-direction:column; gap:12px;">
+                <!-- Direcciones inyectadas aquí por JS -->
+                <p style="color:var(--text-muted)">Cargando direcciones...</p>
+              </div>
+            </div>
+
+            <!-- Pestaña 5: Datos Bancarios -->
+            <div class="profile-tab-panel" id="tab-bancario" style="display:none">
+              <form id="form-perfil-bancario" class="perfil-form">
+                <div class="form-group">
+                  <label class="form-label" for="prof-bank">Banco</label>
+                  <input class="form-input" type="text" id="prof-bank"
+                    placeholder="Ej: Banco Estado, Banco de Chile..." />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-account-type">Tipo de Cuenta</label>
+                  <select class="form-input" id="prof-account-type">
+                    <option value="">Seleccionar...</option>
+                    <option value="Cuenta corriente">Cuenta corriente</option>
+                    <option value="Cuenta vista">Cuenta vista</option>
+                    <option value="Cuenta ahorro">Cuenta ahorro</option>
+                    <option value="Cuenta rut">Cuenta rut</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-account-number">Número de Cuenta</label>
+                  <input class="form-input" type="text" id="prof-account-number" placeholder="Ej: 123456789" />
+                </div>
+                <p class="form-error" id="prof-bancario-error"></p>
+                <div style="margin-top:20px"><button type="submit" class="btn btn-primary">💾 Guardar Datos
+                    Bancarios</button></div>
+              </form>
+            </div>
+
+            <!-- Pestaña 6: Redes Sociales -->
+            <div class="profile-tab-panel" id="tab-redes" style="display:none">
+              <form id="form-perfil-redes" class="perfil-form">
+                <div class="form-group">
+                  <label class="form-label" for="prof-facebook">Facebook (URL)</label>
+                  <input class="form-input" type="url" id="prof-facebook" placeholder="https://facebook.com/tuPerfil" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-instagram">Instagram (URL o @usuario)</label>
+                  <input class="form-input" type="text" id="prof-instagram" placeholder="@tuUsuario" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="prof-youtube">Youtube (URL)</label>
+                  <input class="form-input" type="url" id="prof-youtube" placeholder="https://youtube.com/c/tuCanal" />
+                </div>
+                <p class="form-error" id="prof-redes-error"></p>
+                <div style="margin-top:20px"><button type="submit" class="btn btn-primary">💾 Guardar Redes
+                    Sociales</button></div>
+              </form>
+            </div>
+
+          </div>
         </div>
       </div>
 
@@ -451,6 +598,10 @@
         <div class="form-group">
           <label class="form-label" for="product-precio">Precio (CLP) *</label>
           <input class="form-input" type="number" id="product-precio" placeholder="0" min="0" step="1" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="product-stock">Stock disponible *</label>
+          <input class="form-input" type="number" id="product-stock" placeholder="0" min="0" step="1" required />
         </div>
         <div class="form-group">
           <label class="form-label" for="product-descripcion">Descripción *</label>

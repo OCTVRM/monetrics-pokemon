@@ -49,6 +49,15 @@ export const store = {
     },
 
     async addToCart(userId, productId, cantidad = 1) {
+        // Get product stock first
+        const { data: product, error: pError } = await supabase
+            .from('products')
+            .select('stock')
+            .eq('id', productId)
+            .single();
+
+        if (pError || !product) throw new Error('Producto no encontrado');
+
         // Try to get existing item
         const { data: existing } = await supabase
             .from('cart_items')
@@ -57,10 +66,16 @@ export const store = {
             .eq('product_id', productId)
             .single();
 
+        const newCantidad = existing ? existing.cantidad + cantidad : cantidad;
+
+        if (newCantidad > product.stock) {
+            throw new Error(`Stock insuficiente. Solo quedan ${product.stock} unidades.`);
+        }
+
         if (existing) {
             const { data, error } = await supabase
                 .from('cart_items')
-                .update({ cantidad: existing.cantidad + cantidad })
+                .update({ cantidad: newCantidad })
                 .eq('id', existing.id)
                 .select()
                 .single();
@@ -80,6 +95,18 @@ export const store = {
     async updateCartItemQuantity(userId, itemId, cantidad) {
         if (cantidad <= 0) {
             return this.removeFromCart(userId, itemId);
+        }
+
+        // Get product stock from joined item
+        const { data: item, error: iError } = await supabase
+            .from('cart_items')
+            .select('*, products(stock)')
+            .eq('id', itemId)
+            .single();
+
+        if (iError || !item) throw new Error('Item del carrito no encontrado');
+        if (cantidad > item.products.stock) {
+            throw new Error(`Stock insuficiente. Solo quedan ${item.products.stock} unidades.`);
         }
 
         const { data, error } = await supabase

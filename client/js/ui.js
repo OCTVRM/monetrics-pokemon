@@ -8,7 +8,8 @@ import {
   addCardToDeck, removeCardFromDeck, updateCardQuantity,
   getDeckCards, calculateDeckSummary, ensureUserDocument,
   syncDeckStats, subscribeToUserDecks, subscribeToDeck, subscribeToDeckCards,
-  getUserProfile, updateUserProfile, getPublicProfile
+  getUserProfile, updateUserProfile, getPublicProfile,
+  getUserAddresses, addUserAddress, deleteUserAddress
 } from './decks.js';
 import {
   subscribeToMarketListings, createMarketListing,
@@ -342,6 +343,8 @@ function bindEvents() {
   $('store-details-close')?.addEventListener('click', () => $('store-details-overlay').classList.remove('open'));
   $('store-details-overlay')?.addEventListener('click', e => { if (e.target === $('store-details-overlay')) $('store-details-overlay').classList.remove('open'); });
   $('product-form')?.addEventListener('submit', handleProductSubmit);
+
+  bindProfileEvents();
 }
 
 // ─── Search ────────────────────────────────────────────────────────────────────
@@ -1464,69 +1467,185 @@ async function handleSubmitListing(e) {
 // ─── USER PROFILE ─────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function loadProfilePage() {
-  const container = $('profile-content');
-  if (!container || !currentUser) return;
-  container.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:40px"><div class="loading-spinner" style="width:28px;height:28px"></div></div>`;
-
-  try {
-    const profile = await getUserProfile(currentUser.id);
-
-    container.innerHTML = `
-      <div class="profile-avatar">👤</div>
-      <div class="form-group" style="margin-bottom:16px">
-        <div class="profile-field-label">Correo electrónico</div>
-        <div class="profile-email-display">${escHtml(currentUser.email)}</div>
-      </div>
-      <form id="profile-form" novalidate>
-        <div class="form-group" style="margin-bottom:16px">
-          <label class="form-label" for="profile-nickname">Nickname (visible en el mercado)</label>
-          <input class="form-input" type="text" id="profile-nickname"
-            value="${escHtml(profile.nickname || '')}"
-            placeholder="Tu nombre de usuario" maxlength="40" />
-        </div>
-        <div class="form-group" style="margin-bottom:16px">
-          <label class="form-label" for="profile-phone">Número de teléfono</label>
-          <input class="form-input" type="text" id="profile-phone"
-            value="${escHtml(profile.phone_number || '')}"
-            placeholder="Ej: +56 9 1234 5678" maxlength="20" />
-        </div>
-        <div class="form-group" style="margin-bottom:20px">
-          <label class="form-label" for="profile-ciudad">Ciudad</label>
-          <input class="form-input" type="text" id="profile-ciudad"
-            value="${escHtml(profile.ciudad || '')}"
-            placeholder="Ej: Santiago, Buenos Aires..." maxlength="60" />
-        </div>
-        <div style="display:flex;gap:12px;align-items:center">
-          <button type="submit" class="btn btn-primary">💾 Guardar cambios</button>
-          <p class="form-error" id="profile-error" style="margin:0"></p>
-        </div>
-      </form>`;
-
-    container.querySelector('#profile-form')?.addEventListener('submit', async (e) => {
+function bindProfileEvents() {
+  document.querySelectorAll('.profile-tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
       e.preventDefault();
-      const errEl = container.querySelector('#profile-error');
-      if (errEl) errEl.textContent = '';
-      const btn = container.querySelector('[type=submit]');
+      document.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.profile-tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.profile-tab-panel').forEach(p => p.style.display = 'none');
+      e.target.classList.add('active');
+      const targetId = e.target.getAttribute('data-target');
+      const targetPanel = $(targetId);
+      if (targetPanel) {
+        targetPanel.classList.add('active');
+        targetPanel.style.display = 'block';
+      }
+    });
+  });
+
+  function validateRut(rut) {
+    if (!rut) return true;
+    const cleanRut = rut.replace(/[^0-9kK]/g, '').toUpperCase();
+    if (cleanRut.length < 8) return false;
+    const dv = cleanRut.slice(-1);
+    const body = cleanRut.slice(0, -1);
+    if (!/^[0-9]+$/.test(body)) return false;
+    let sum = 0, multiplier = 2;
+    for (let i = body.length - 1; i >= 0; i--) {
+      sum += parseInt(body[i]) * multiplier;
+      multiplier = multiplier === 7 ? 2 : multiplier + 1;
+    }
+    const expDv = 11 - (sum % 11);
+    const expDvStr = expDv === 11 ? '0' : expDv === 10 ? 'K' : String(expDv);
+    return expDvStr === dv;
+  }
+
+  const btnForms = ['form-perfil-generales', 'form-perfil-avatar', 'form-perfil-personal', 'form-perfil-bancario', 'form-perfil-redes'];
+  btnForms.forEach(id => {
+    $(id)?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const rutVal = $('prof-rut')?.value || '';
+      if (rutVal && !validateRut(rutVal)) {
+        showToast('RUT chileno inválido. Verifica formato o dígito verificador.', 'error');
+        return;
+      }
+
+      const btn = e.target.querySelector('button[type="submit"]');
       if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
       try {
         await updateUserProfile(currentUser.id, {
-          nickname: container.querySelector('#profile-nickname')?.value?.trim() || '',
-          phone_number: container.querySelector('#profile-phone')?.value?.trim() || '',
-          ciudad: container.querySelector('#profile-ciudad')?.value?.trim() || ''
+          nickname: $('prof-nickname')?.value || '',
+          ciudad: $('prof-ciudad')?.value || '',
+          phone_number: $('prof-phone')?.value || '',
+          full_name: $('prof-fullname')?.value || '',
+          additional_info: $('prof-additional')?.value || '',
+          avatar_url: $('prof-avatar-url')?.value || '',
+          rut: $('prof-rut')?.value || '',
+          personal_email: $('prof-personal-email')?.value || '',
+          bank_name: $('prof-bank')?.value || '',
+          bank_account_type: $('prof-account-type')?.value || '',
+          bank_account_number: $('prof-account-number')?.value || '',
+          social_facebook: $('prof-facebook')?.value || '',
+          social_instagram: $('prof-instagram')?.value || '',
+          social_youtube: $('prof-youtube')?.value || '',
         });
         showToast('Perfil actualizado correctamente ✅', 'success');
+        if ($('prof-avatar-url')?.value) {
+          $('prof-avatar-preview').src = $('prof-avatar-url').value;
+        }
       } catch (err) {
-        if (errEl) errEl.textContent = err.message;
         showToast('Error al guardar: ' + err.message, 'error');
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar cambios'; }
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Datos'; }
       }
     });
+  });
+
+  $('btn-add-address')?.addEventListener('click', async () => {
+    const defaultAddress = {
+      nombre_direccion: prompt("Nombre de la dirección (ej: Casa, Trabajo):"),
+      pais: "Chile",
+      region: prompt("Región (ej: Metropolitana):"),
+      comuna: prompt("Comuna (ej: Santiago):"),
+      calle_avenida: prompt("Calle o Avenida:"),
+      numero: prompt("Número (ej: 1234):"),
+      piso: prompt("Piso (opcional):") || null,
+      depto_oficina: prompt("Depto/Oficina (opcional):") || null,
+      referencia_adicional: prompt("Referencia adicional (opcional):") || null
+    };
+
+    if (defaultAddress.nombre_direccion && defaultAddress.region && defaultAddress.comuna && defaultAddress.calle_avenida && defaultAddress.numero) {
+      try {
+        await addUserAddress(currentUser.id, defaultAddress);
+        showToast('Dirección agregada', 'success');
+        loadUserAddresses();
+      } catch (e) {
+        showToast('Error agregando dirección', 'error');
+      }
+    } else {
+      showToast('Debe ingresar los campos obligatorios para la dirección', 'warning');
+    }
+  });
+}
+
+async function loadProfilePage() {
+  if (!currentUser) return;
+  const container = $('profile-content');
+  if (!container) return;
+
+  if ($('prof-email')) $('prof-email').value = currentUser.email || '';
+
+  try {
+    const profile = await getUserProfile(currentUser.id);
+    if (!profile) return;
+
+    if ($('prof-fullname')) $('prof-fullname').value = profile.full_name || '';
+    if ($('prof-nickname')) $('prof-nickname').value = profile.nickname || '';
+    if ($('prof-ciudad')) $('prof-ciudad').value = profile.ciudad || '';
+    if ($('prof-additional')) $('prof-additional').value = profile.additional_info || '';
+
+    if ($('prof-avatar-url')) $('prof-avatar-url').value = profile.avatar_url || '';
+    if (profile.avatar_url && $('prof-avatar-preview')) {
+      $('prof-avatar-preview').src = profile.avatar_url;
+    }
+
+    if ($('prof-rut')) $('prof-rut').value = profile.rut || '';
+    if ($('prof-phone')) $('prof-phone').value = profile.phone_number || '';
+    if ($('prof-personal-email')) $('prof-personal-email').value = profile.personal_email || '';
+
+    if ($('prof-bank')) $('prof-bank').value = profile.bank_name || '';
+    if ($('prof-account-type')) $('prof-account-type').value = profile.bank_account_type || '';
+    if ($('prof-account-number')) $('prof-account-number').value = profile.bank_account_number || '';
+
+    if ($('prof-facebook')) $('prof-facebook').value = profile.social_facebook || '';
+    if ($('prof-instagram')) $('prof-instagram').value = profile.social_instagram || '';
+    if ($('prof-youtube')) $('prof-youtube').value = profile.social_youtube || '';
+
+    loadUserAddresses();
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--danger);padding:24px">Error cargando perfil: ${escHtml(err.message)}</div>`;
+    showToast('Error cargando perfil: ' + err.message, 'error');
   }
 }
+
+async function loadUserAddresses() {
+  const addressList = $('address-list');
+  if (!addressList) return;
+  try {
+    const addresses = await getUserAddresses(currentUser.id);
+    if (addresses.length === 0) {
+      addressList.innerHTML = `<p style="color:var(--text-muted)">No tienes direcciones guardadas.</p>`;
+      return;
+    }
+    addressList.innerHTML = addresses.map(addr => `
+      <div style="border: 1px solid var(--border-color); margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--card-bg);">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <strong style="color:var(--text-color)">${escHtml(addr.nombre_direccion)}</strong>
+          <button class="btn btn-danger btn-sm" onclick="window.handleDeleteAddress('${addr.id}')">🗑️ Eliminar</button>
+        </div>
+        <div style="color:var(--text-muted); font-size:14px; line-height:1.5;">
+          ${escHtml(addr.calle_avenida)} ${escHtml(addr.numero)}${addr.piso ? ', Piso ' + escHtml(addr.piso) : ''}${addr.depto_oficina ? ', Depto ' + escHtml(addr.depto_oficina) : ''}<br/>
+          ${escHtml(addr.comuna)}, ${escHtml(addr.region)}<br/>
+          ${addr.referencia_adicional ? '<em>Ref: ' + escHtml(addr.referencia_adicional) + '</em>' : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    addressList.innerHTML = `<p style="color:var(--danger)">Error cargando direcciones</p>`;
+  }
+}
+
+window.handleDeleteAddress = async (id) => {
+  if (!confirm("¿Deseas eliminar esta dirección?")) return;
+  try {
+    await deleteUserAddress(currentUser.id, id);
+    showToast('Dirección eliminada', 'success');
+    loadUserAddresses();
+  } catch (e) {
+    showToast('Error eliminando dirección', 'error');
+  }
+};
 // ─── Store & Cart Logic ────────────────────────────────────────────────────────
 async function loadStorePage() {
   const grid = $('store-grid');
@@ -1558,8 +1677,11 @@ function renderStoreGrid(products) {
         <h3 class="store-card-title">${p.nombre}</h3>
         <div class="store-card-price">CLP $ ${Math.round(p.precio).toLocaleString('es-CL')}</div>
         <p class="store-card-description">${p.descripcion}</p>
+        <div class="store-card-stock" style="font-size:0.8rem;margin-bottom:8px;${p.stock <= 0 ? 'color:var(--danger)' : 'opacity:0.7'}">
+          Stock: ${p.stock > 0 ? p.stock + ' unidades' : 'Agotado'}
+        </div>
         <div class="store-card-footer">
-          <button class="btn btn-primary w-100" onclick="event.stopPropagation(); handleAddToCart('${p.id}')">🛒 Agregar al Carrito</button>
+          <button class="btn btn-primary w-100" ${p.stock <= 0 ? 'disabled' : ''} onclick="event.stopPropagation(); handleAddToCart('${p.id}')">🛒 Agregar al Carrito</button>
         </div>
       </div>
       ${currentUser?.role === 'admin' ? `
@@ -1593,9 +1715,12 @@ async function openStoreProductDetail(productId) {
         </div>
         <div class="product-detail-description">
           <p>${product.descripcion || 'Sin descripción disponible.'}</p>
+          <div class="product-stock-detail" style="margin-top:12px;${product.stock <= 0 ? 'color:var(--danger);font-weight:700' : 'opacity:0.8'}">
+            Disponibilidad: ${product.stock > 0 ? product.stock + ' unidades en stock' : 'Agotado'}
+          </div>
         </div>
         <div class="product-detail-actions">
-          <button class="btn btn-primary btn-lg w-100" onclick="handleAddToCart('${product.id}')">🛒 Agregar al Carrito</button>
+          <button class="btn btn-primary btn-lg w-100" ${product.stock <= 0 ? 'disabled' : ''} onclick="handleAddToCart('${product.id}')">🛒 ${product.stock > 0 ? 'Agregar al Carrito' : 'Sin Stock'}</button>
         </div>
       </div>
     </div>
@@ -1615,7 +1740,7 @@ window.handleAddToCart = async function (productId) {
     updateCartBadge();
   } catch (err) {
     console.error('Error adding to cart:', err);
-    showToast('Error al añadir al carrito', 'danger');
+    showToast(err.message || 'Error al añadir al carrito', 'danger');
   }
 };
 
@@ -1695,13 +1820,10 @@ function renderCart(items) {
           <div class="cart-item-price">CLP $ ${Math.round(p.precio).toLocaleString('es-CL')}</div>
         </div>
         <div class="cart-item-actions">
-          <div class="qty-control">
-            <button class="qty-btn" onclick="handleUpdateCartQty('${item.id}', ${item.cantidad - 1})">-</button>
-            <span class="qty-value">${item.cantidad}</span>
-            <button class="qty-btn" onclick="handleUpdateCartQty('${item.id}', ${item.cantidad + 1})">+</button>
+            <input type="number" class="form-input cart-qty-input" value="${item.cantidad}" min="1" max="${item.products.stock}"
+              onchange="window.handleUpdateCartQty('${item.id}', this.value)" style="width:60px" />
+            <button class="btn btn-sm btn-outline-danger" onclick="window.handleRemoveFromCart('${item.id}')">🗑️</button>
           </div>
-          <button class="btn btn-ghost danger" onclick="handleRemoveFromCart('${item.id}')">🗑️</button>
-        </div>
       </div>
     `;
   }).join('');
@@ -1722,14 +1844,18 @@ function renderCart(items) {
   `;
 }
 
-window.handleUpdateCartQty = async function (itemId, newQty) {
+window.handleUpdateCartQty = async function (itemId, qty) {
   try {
-    await store.updateCartItemQuantity(currentUser.id, itemId, newQty);
+    await store.updateCartItemQuantity(currentUser.id, itemId, parseInt(qty));
     const items = await store.getCartItems(currentUser.id);
     renderCart(items);
     updateCartBadge();
   } catch (err) {
-    console.error('Error updating cart qty:', err);
+    console.error('Error updating cart quantity:', err);
+    showToast(err.message || 'Error al actualizar cantidad', 'danger');
+    // Reload items to reset input value
+    const items = await store.getCartItems(currentUser.id);
+    renderCart(items);
   }
 };
 
@@ -1753,18 +1879,19 @@ async function handleProductSubmit(e) {
 
   const nombre = $('product-nombre').value.trim();
   const precio = parseFloat($('product-precio').value);
+  const stock = parseInt($('product-stock').value);
   const descripcion = $('product-descripcion').value.trim();
   const imagen_url = $('product-imagen').value.trim();
 
-  if (!nombre || isNaN(precio) || precio <= 0 || !descripcion || !imagen_url) {
-    errorEl.textContent = 'Por favor completa todos los campos obligatorios y asegúrate de que el precio sea válido.';
+  if (!nombre || isNaN(precio) || precio <= 0 || isNaN(stock) || stock < 0 || !descripcion || !imagen_url) {
+    errorEl.textContent = 'Por favor completa todos los campos obligatorios y asegura que precio y stock sean válidos.';
     return;
   }
 
   try {
     btn.disabled = true;
     btn.textContent = 'Publicando...';
-    await store.createProduct({ nombre, precio, descripcion, imagen_url });
+    await store.createProduct({ nombre, precio, stock, descripcion, imagen_url });
 
     showToast('Producto publicado exitosamente', 'success');
     form.reset();

@@ -61,19 +61,64 @@ export async function getPublicProfile(uid) {
 }
 
 /**
- * Update user profile fields (nickname, ciudad).
+ * Update user profile fields.
  */
 export async function updateUserProfile(uid, data) {
     const { error } = await supabase
         .from('users')
         .update({
-            nickname: (data.nickname || '').trim(),
-            ciudad: (data.ciudad || '').trim(),
-            phone_number: (data.phone_number || '').trim()
+            nickname: data.nickname ? data.nickname.trim() : null,
+            ciudad: data.ciudad ? data.ciudad.trim() : null,
+            phone_number: data.phone_number ? data.phone_number.trim() : null,
+            full_name: data.full_name ? data.full_name.trim() : null,
+            additional_info: data.additional_info ? data.additional_info.trim() : null,
+            avatar_url: data.avatar_url ? data.avatar_url.trim() : null,
+            rut: data.rut ? data.rut.trim() : null,
+            personal_email: data.personal_email ? data.personal_email.trim() : null,
+            bank_name: data.bank_name ? data.bank_name.trim() : null,
+            bank_account_type: data.bank_account_type ? data.bank_account_type.trim() : null,
+            bank_account_number: data.bank_account_number ? data.bank_account_number.trim() : null,
+            social_facebook: data.social_facebook ? data.social_facebook.trim() : null,
+            social_instagram: data.social_instagram ? data.social_instagram.trim() : null,
+            social_youtube: data.social_youtube ? data.social_youtube.trim() : null,
         })
         .eq('id', uid);
     if (error) throw error;
 }
+
+// ─── Addresses CRUD ─────────────────────────────────────────────────────────────
+
+export async function getUserAddresses(uid) {
+    const { data, error } = await supabase
+        .from('user_addresses')
+        .select('*')
+        .eq('user_id', uid)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+}
+
+export async function addUserAddress(uid, addressData) {
+    const { id, user_id, created_at, ...rest } = addressData; // ignore these if passed
+    const { error } = await supabase
+        .from('user_addresses')
+        .insert({
+            user_id: uid,
+            ...rest
+        });
+    if (error) throw error;
+}
+
+export async function deleteUserAddress(uid, addressId) {
+    const { error } = await supabase
+        .from('user_addresses')
+        .delete()
+        .eq('id', addressId)
+        .eq('user_id', uid);
+    if (error) throw error;
+}
+
 
 // ─── Decks CRUD ────────────────────────────────────────────────────────────────
 
