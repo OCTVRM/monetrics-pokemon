@@ -1614,15 +1614,15 @@ function bindProfileEvents() {
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
     try {
       const addressData = {
-        nombre_direccion: $('addr-name')?.value || '',
-        pais: 'Chile',
+        address_name: $('addr-name')?.value || '',
+        country: 'Chile',
         region: $('addr-region')?.value || '',
-        comuna: $('addr-comuna')?.value || '',
-        calle_avenida: $('addr-calle')?.value || '',
-        numero: $('addr-numero')?.value || '',
-        piso: $('addr-piso')?.value || null,
-        depto_oficina: $('addr-depto')?.value || null,
-        referencia_adicional: $('addr-referencia')?.value || null
+        commune: $('addr-comuna')?.value || '',
+        street: $('addr-calle')?.value || '',
+        number: $('addr-numero')?.value || '',
+        floor: $('addr-piso')?.value || null,
+        apartment: $('addr-depto')?.value || null,
+        extra_reference: $('addr-referencia')?.value || null
       };
       await addUserAddress(currentUser.id, addressData);
       showToast('Dirección agregada ✅', 'success');
@@ -1689,13 +1689,13 @@ async function loadUserAddresses() {
     addressList.innerHTML = addresses.map(addr => `
       <div style="border: 1px solid var(--border-color); margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--card-bg);">
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-          <strong style="color:var(--text-color)">${escHtml(addr.nombre_direccion)}</strong>
+          <strong style="color:var(--text-color)">${escHtml(addr.address_name)}</strong>
           <button class="btn btn-danger btn-sm" onclick="window.handleDeleteAddress('${addr.id}')">🗑️ Eliminar</button>
         </div>
         <div style="color:var(--text-muted); font-size:14px; line-height:1.5;">
-          ${escHtml(addr.calle_avenida)} ${escHtml(addr.numero)}${addr.piso ? ', Piso ' + escHtml(addr.piso) : ''}${addr.depto_oficina ? ', Depto ' + escHtml(addr.depto_oficina) : ''}<br/>
-          ${escHtml(addr.comuna)}, ${escHtml(addr.region)}<br/>
-          ${addr.referencia_adicional ? '<em>Ref: ' + escHtml(addr.referencia_adicional) + '</em>' : ''}
+          ${escHtml(addr.street)} ${escHtml(addr.number)}${addr.floor ? ', Piso ' + escHtml(addr.floor) : ''}${addr.apartment ? ', Depto ' + escHtml(addr.apartment) : ''}<br/>
+          ${escHtml(addr.commune)}, ${escHtml(addr.region)}<br/>
+          ${addr.extra_reference ? '<em>Ref: ' + escHtml(addr.extra_reference) + '</em>' : ''}
         </div>
       </div>
     `).join('');
