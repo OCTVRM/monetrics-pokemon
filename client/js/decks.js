@@ -93,7 +93,6 @@ export async function getUserAddresses(uid) {
         .from('user_addresses')
         .select('*')
         .eq('user_id', uid)
-        .order('is_default', { ascending: false })
         .order('created_at', { ascending: true });
     if (error) throw error;
     return data || [];

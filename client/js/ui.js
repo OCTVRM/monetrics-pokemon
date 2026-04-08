@@ -1700,7 +1700,8 @@ async function loadUserAddresses() {
       </div>
     `).join('');
   } catch (err) {
-    addressList.innerHTML = `<p style="color:var(--danger)">Error cargando direcciones</p>`;
+    console.error("Address Load Error:", err);
+    addressList.innerHTML = `<p style="color:var(--danger)">Error cargando direcciones: ${err.message || 'Desconocido'}</p>`;
   }
 }
 
