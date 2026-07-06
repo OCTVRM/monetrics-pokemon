@@ -23,12 +23,24 @@
           <span class="brand-text">Monetrics <span>TCG</span></span>
         </a>
 
-        <div class="navbar-actions">
+        <!-- Hamburger button (mobile only) -->
+        <button class="navbar-hamburger" id="navbar-hamburger" aria-label="Abrir menú" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+
+        <div class="navbar-actions" id="navbar-actions">
+          <!-- close row inside mobile -->
+          <div class="navbar-mobile-close-row">
+            <button class="navbar-mobile-close" id="navbar-mobile-close" aria-label="Cerrar menú">✕</button>
+          </div>
+
           <button class="nav-link" id="nav-market" onclick="location.hash='#market'">🏪 <span
               id="nav-market-text">Mercado
               Comunitario</span></button>
           <button class="nav-link" id="nav-store" onclick="location.hash='#store'">🛒 Tienda</button>
           <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
+          <button class="nav-link" id="nav-tournaments" style="display:none" onclick="location.hash='#tournaments'">🏆
+            Registro de torneos</button>
 
           <!-- Guest actions -->
           <div id="guest-actions" style="display:flex;gap:8px">
@@ -52,6 +64,7 @@
                 <div class="user-label" id="user-role-display">Usuario registrado</div>
               </div>
               <button class="dropdown-item" onclick="location.hash='#decks'">📦 Mis Barajas</button>
+              <button class="dropdown-item" onclick="location.hash='#tournaments'">🏆 Registro de torneos</button>
               <button class="dropdown-item" onclick="location.hash='#profile'">👤 Mi Perfil</button>
               <button class="dropdown-item danger" id="btn-logout">🚪 Cerrar sesión</button>
             </div>
@@ -59,6 +72,10 @@
         </div>
       </div>
     </nav>
+
+    <!-- Mobile nav overlay backdrop -->
+    <div class="navbar-overlay" id="navbar-overlay"></div>
+
 
     <!-- ── MAIN CONTENT ───────────────────────────────────────────────────────── -->
     <main class="main-content">
@@ -126,6 +143,55 @@
         </div>
         <div id="deck-detail-content">
           <!-- Deck detail injected by JS -->
+        </div>
+      </div>
+
+      <!-- TOURNAMENTS PAGE -->
+      <div class="page" id="page-tournaments">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🏆 Registro de Torneos</div>
+            <div class="section-subtitle">Lleva el control de tu desempeño competitivo</div>
+          </div>
+          <button class="btn btn-primary" id="btn-create-tournament">＋ Nuevo torneo</button>
+        </div>
+        <div class="tournaments-grid" id="tournaments-grid">
+          <!-- Tournaments injected by JS -->
+        </div>
+      </div>
+
+      <!-- TOURNAMENT DETAIL PAGE -->
+      <div class="page" id="page-tournament-detail">
+        <div class="back-row" style="margin-bottom: 24px;">
+          <button class="back-btn" id="btn-back-tournaments">← Volver a Torneos</button>
+        </div>
+
+        <div class="tournament-detail-header">
+          <div class="t-detail-icon-big">🏆</div>
+          <div id="tournament-detail-header-info">
+            <!-- Injected by JS -->
+          </div>
+          <div class="t-header-actions" style="display:flex; gap:12px; align-items:center;">
+            <button class="btn btn-primary" id="btn-add-match">⚔️ Registrar Batalla</button>
+            <button class="btn btn-danger-outline" id="btn-delete-tournament">🗑️ Eliminar Torneo</button>
+          </div>
+        </div>
+
+        <div class="match-table-container">
+          <table class="match-table">
+            <thead>
+              <tr>
+                <th>Ronda</th>
+                <th>Mazo Oponente</th>
+                <th>Resultado</th>
+                <th>Puntos</th>
+                <th style="width: 80px; text-align: center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="match-table-body">
+              <!-- Injected by JS -->
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -681,6 +747,111 @@
       </form>
     </div>
   </div>
+
+  <!-- ── CREATE TOURNAMENT MODAL ────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="tournament-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tournament-modal-title">
+      <div class="modal-header">
+        <span class="modal-title" id="tournament-modal-title">🏆 Nuevo Torneo</span>
+        <button class="modal-close" id="tournament-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="tournament-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="tournament-name">Nombre del torneo *</label>
+          <input class="form-input" type="text" id="tournament-name" placeholder="Ej: League Cup Mayo" required
+            maxlength="60" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="tournament-deck">¿Con qué mazo jugaste? *</label>
+          <div class="input-with-preview" style="position: relative; display: flex; align-items: center;">
+            <input class="form-input" type="text" id="tournament-deck" placeholder="Ej: Lugia VSTAR" required
+              maxlength="60" style="padding-left: 42px;" />
+            <img id="tournament-deck-icon"
+              src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" alt="Mazo"
+              style="position: absolute; left: 10px; width: 24px; height: 24px; pointer-events: none;" />
+          </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="tournament-date">Fecha *</label>
+            <input class="form-input" type="date" id="tournament-date" required />
+          </div>
+          <div class="form-group" style="flex:1">
+            <label class="form-label" for="tournament-format">Formato *</label>
+            <select class="form-input" id="tournament-format" required>
+              <option value="BO1">BO1</option>
+              <option value="BO3" selected>BO3</option>
+              <option value="BO5">BO5</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
+          <button type="button" class="btn btn-outline" id="tournament-modal-cancel">Cancelar</button>
+          <button type="submit" id="btn-tournament-submit" class="btn btn-primary">＋ Crear torneo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── ADD MATCH MODAL ────────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="match-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="match-modal-title">
+      <div class="modal-header">
+        <span class="modal-title" id="match-modal-title">⚔️ Registrar Batalla</span>
+        <button class="modal-close" id="match-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="match-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="match-opponent-deck">Mazo del contrincante *</label>
+          <div class="input-with-preview" style="position: relative; display: flex; align-items: center;">
+            <input class="form-input" type="text" id="match-opponent-deck" placeholder="Ej: Giratina VSTAR" required
+              maxlength="60" style="padding-left: 42px;" />
+            <img id="match-opponent-deck-icon"
+              src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"
+              alt="Mazo oponente"
+              style="position: absolute; left: 10px; width: 24px; height: 24px; pointer-events: none;" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="match-result">Resultado *</label>
+          <select class="form-input" id="match-result" required>
+            <option value="Ganador">Ganador</option>
+            <option value="Perdedor">Perdedor</option>
+            <option value="Empate">Empate</option>
+            <option value="BYE">BYE</option>
+          </select>
+        </div>
+        <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
+          <button type="button" class="btn btn-outline" id="match-modal-cancel">Cancelar</button>
+          <button type="submit" id="btn-match-submit" class="btn btn-primary">⚔️ Registrar batalla</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── DELETE CONFIRMATION MODAL ─────────────────────────────────────────── -->
+  <div class="modal-overlay" id="delete-confirm-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-modal-title"
+      style="max-width: 400px;">
+      <div class="modal-header">
+        <span class="modal-title" id="delete-confirm-modal-title">⚠️ Confirmar Eliminación</span>
+        <button class="modal-close" id="delete-confirm-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-confirm-message" style="margin-bottom: 24px; line-height: 1.5; color: var(--text);">¿Estás seguro
+          de que deseas eliminar este registro?</p>
+        <div class="modal-footer"
+          style="padding: 0; border: none; display: flex; justify-content: flex-end; gap: 12px;">
+          <button type="button" class="btn btn-outline" id="btn-delete-confirm-cancel"
+            style="flex: 1;">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="btn-delete-confirm-accept"
+            style="flex: 1; background-color: var(--danger, #f85149); border-color: var(--danger, #f85149);">🗑️
+            Eliminar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- ── SCRIPTS ─────────────────────────────────────────────────────────────── -->
   <script type="module">

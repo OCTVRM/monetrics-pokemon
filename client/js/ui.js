@@ -20,6 +20,11 @@ import {
   getConversations, getOrCreateConversation, getMessages,
   sendMessage, subscribeToMessages, getConversationById, subscribeToNewConversations
 } from './chat.js';
+import {
+  createTournament, getUserTournaments, getTournament,
+  addTournamentMatch, deleteTournament, deleteTournamentMatch,
+  subscribeToUserTournaments, subscribeToTournamentMatches
+} from './tournaments.js';
 import { submitReview, getUserReviews } from './reviews.js';
 import { store } from './store.js';
 
@@ -33,6 +38,45 @@ let activeSubscriptions = {}; // Track Firebase onSnapshot listeners for cleanup
 let allMarketListings = []; // Market state for client-side filtering
 let allStoreProducts = [];   // Store state for product detail
 let userProfilesCache = {}; // Cache for seller profiles to avoid redundant fetches
+
+// ─── PokéAPI Icon Helper ────────────────────────────────────────────────────────
+const pokemonIconCache = {}; // name -> sprite URL
+const POKEBALL_URL = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png';
+
+async function getPokemonIcon(deckName) {
+  if (!deckName || !deckName.trim()) return POKEBALL_URL;
+  // Take the first word as potential Pokémon name
+  const keyword = deckName.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
+  if (!keyword) return POKEBALL_URL;
+  if (pokemonIconCache[keyword]) return pokemonIconCache[keyword];
+  try {
+    const resp = await fetch(`https://pokeapi.co/api/v2/pokemon/${keyword}`, { signal: AbortSignal.timeout(4000) });
+    if (!resp.ok) throw new Error('not found');
+    const data = await resp.json();
+    const url = data.sprites?.versions?.['generation-viii']?.icons?.front_default
+      || data.sprites?.front_default
+      || POKEBALL_URL;
+    pokemonIconCache[keyword] = url;
+    return url;
+  } catch {
+    pokemonIconCache[keyword] = POKEBALL_URL;
+    return POKEBALL_URL;
+  }
+}
+
+function bindPokemonPreview(inputId, iconId) {
+  const input = $(inputId);
+  const icon = $(iconId);
+  if (!input || !icon) return;
+  let debounce;
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const url = await getPokemonIcon(input.value);
+      icon.src = url;
+    }, 500);
+  });
+}
 
 // ─── DOM Refs ──────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -147,6 +191,26 @@ function handleRoute(hash) {
       showPage('page-chat');
       loadChatPage(param);
       break;
+    case '#tournaments':
+      if (!currentUser) {
+        showToast('Inicia sesión para ver tus torneos', 'warning');
+        location.hash = '#home';
+        break;
+      }
+      showPage('page-tournaments');
+      setNavActive('nav-tournament');
+      loadTournamentsPage();
+      break;
+    case '#tournament':
+      if (!currentUser) {
+        showToast('Inicia sesión para ver este torneo', 'warning');
+        location.hash = '#home';
+        break;
+      }
+      showPage('page-tournament-detail');
+      setNavActive('nav-tournament');
+      loadTournamentDetailPage(param);
+      break;
     case '#user':
       showPage('page-user-profile');
       loadPublicProfilePage(param);
@@ -210,6 +274,8 @@ function updateAuthUI(user) {
       btnCartToggle.style.display = 'flex';
       updateCartBadge();
     }
+    const navTournament = $('nav-tournament');
+    if (navTournament) navTournament.style.display = 'flex';
     const btnSell = $('btn-sell-card');
     if (btnSell) btnSell.style.display = 'flex';
     const btnCreateProd = $('btn-create-product');
@@ -225,9 +291,11 @@ function updateAuthUI(user) {
     if (btnSell) btnSell.style.display = 'none';
     const btnCreateProd = $('btn-create-product');
     if (btnCreateProd) btnCreateProd.style.display = 'none';
+    const navTournament = $('nav-tournament');
+    if (navTournament) navTournament.style.display = 'none';
     document.body.classList.remove('user-role-admin');
 
-    if (authInitialized && (location.hash.startsWith('#decks') || location.hash.startsWith('#deck') || location.hash.startsWith('#profile'))) {
+    if (authInitialized && (location.hash.startsWith('#decks') || location.hash.startsWith('#deck') || location.hash.startsWith('#profile') || location.hash.startsWith('#tournaments') || location.hash.startsWith('#tournament'))) {
       location.hash = '#search';
     }
   }
@@ -327,6 +395,49 @@ function bindEvents() {
   // Nav - Tienda
   $('nav-store')?.addEventListener('click', () => { location.hash = '#store'; });
 
+  // Tournaments
+  $('nav-tournament')?.addEventListener('click', () => { location.hash = '#tournaments'; });
+  $('btn-create-tournament')?.addEventListener('click', () => openTournamentModal());
+  $('tournament-modal-close')?.addEventListener('click', closeTournamentModal);
+  $('tournament-modal-cancel')?.addEventListener('click', closeTournamentModal);
+  $('tournament-modal-overlay')?.addEventListener('click', e => { if (e.target === $('tournament-modal-overlay')) closeTournamentModal(); });
+  $('tournament-form')?.addEventListener('submit', handleCreateTournament);
+  $('btn-back-tournaments')?.addEventListener('click', () => { location.hash = '#tournaments'; });
+
+  // Matches
+  $('btn-add-match')?.addEventListener('click', () => openMatchModal());
+  $('match-modal-close')?.addEventListener('click', closeMatchModal);
+  $('match-modal-cancel')?.addEventListener('click', closeMatchModal);
+  $('match-modal-overlay')?.addEventListener('click', e => { if (e.target === $('match-modal-overlay')) closeMatchModal(); });
+  $('match-form')?.addEventListener('submit', handleCreateMatch);
+
+  // Delete confirm modal
+  $('btn-delete-confirm-cancel')?.addEventListener('click', hideDeleteConfirmModal);
+  $('delete-confirm-modal-close')?.addEventListener('click', hideDeleteConfirmModal);
+  $('delete-confirm-modal-overlay')?.addEventListener('click', e => { if (e.target === $('delete-confirm-modal-overlay')) hideDeleteConfirmModal(); });
+  $('btn-delete-confirm-accept')?.addEventListener('click', async () => {
+    if (confirmDeleteCallback) {
+      const callback = confirmDeleteCallback;
+      hideDeleteConfirmModal();
+      await callback();
+    }
+  });
+
+  // Pokémon live previews for deck inputs
+  bindPokemonPreview('tournament-deck', 'tournament-deck-icon');
+  bindPokemonPreview('match-opponent-deck', 'match-opponent-deck-icon');
+
+  // BYE toggle: hide opponent deck input when BYE is selected
+  $('match-result')?.addEventListener('change', () => {
+    const isBye = $('match-result')?.value === 'BYE';
+    const opponentGroup = $('match-opponent-deck')?.closest('.form-group');
+    if (opponentGroup) opponentGroup.style.display = isBye ? 'none' : '';
+    if (isBye) {
+      $('match-opponent-deck').value = '';
+      $('match-opponent-deck-icon').src = POKEBALL_URL;
+    }
+  });
+
   // Cart
   $('btn-cart-toggle')?.addEventListener('click', openCartModal);
   $('cart-modal-close')?.addEventListener('click', () => $('cart-modal-overlay').classList.remove('open'));
@@ -345,7 +456,49 @@ function bindEvents() {
   $('product-form')?.addEventListener('submit', handleProductSubmit);
 
   bindProfileEvents();
+
+  // ── Mobile hamburger nav ──
+  const hamburger = $('navbar-hamburger');
+  const navActions = $('navbar-actions');
+  const navOverlay = $('navbar-overlay');
+
+  function openMobileNav() {
+    navActions?.classList.add('mobile-open');
+    navOverlay?.classList.add('active');
+    hamburger?.classList.add('is-active');
+    hamburger?.setAttribute('aria-expanded', 'true');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeMobileNav() {
+    navActions?.classList.remove('mobile-open');
+    navOverlay?.classList.remove('active');
+    hamburger?.classList.remove('is-active');
+    hamburger?.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+  }
+
+  hamburger?.addEventListener('click', () => {
+    if (navActions?.classList.contains('mobile-open')) closeMobileNav();
+    else openMobileNav();
+  });
+
+  $('navbar-mobile-close')?.addEventListener('click', closeMobileNav);
+  navOverlay?.addEventListener('click', closeMobileNav);
+
+  // Close menu on any nav-link click inside the drawer
+  navActions?.querySelectorAll('.nav-link, .dropdown-item, .btn').forEach(el => {
+    el.addEventListener('click', () => {
+      if (window.innerWidth <= 768) closeMobileNav();
+    });
+  });
+
+  // Close on hash change (navigation)
+  window.addEventListener('hashchange', () => {
+    if (window.innerWidth <= 768) closeMobileNav();
+  });
 }
+
 
 // ─── Search ────────────────────────────────────────────────────────────────────
 async function triggerSearch(query) {
@@ -705,8 +858,379 @@ function renderDecksGrid(decks) {
   });
 }
 
+// ─── Tournaments ─────────────────────────────────────────────────────────────
+async function loadTournamentsPage() {
+  const grid = $('tournaments-grid');
+  if (!grid) return;
 
-// ─── Deck Detail ───────────────────────────────────────────────────────────────
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="loading-spinner" style="width:32px;height:32px;margin:0 auto"></div></div>`;
+
+  activeSubscriptions.tournaments = subscribeToUserTournaments(currentUser.id, (tours) => {
+    renderTournamentsGrid(tours);
+  });
+}
+
+function renderTournamentsGrid(tours) {
+  const grid = $('tournaments-grid');
+  if (!tours.length) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column: 1/-1;">
+        <div class="empty-icon">🏆</div>
+        <div class="empty-title">Sin registros</div>
+        <div class="empty-desc">Aún no has registrado ningún torneo. ¡Lleva el control de tus batallas!</div>
+        <button class="btn btn-primary" id="btn-create-tour-empty">＋ Registrar mi primer torneo</button>
+      </div>`;
+    $('btn-create-tour-empty')?.addEventListener('click', () => $('btn-create-tournament')?.click());
+    return;
+  }
+
+  grid.innerHTML = tours.map(t => {
+    const date = new Date(t.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+    const matches = t.tournament_matches || [];
+    const matchCount = matches.length;
+    const totalPoints = matches.reduce((acc, m) => acc + (m.points || 0), 0);
+    const wins = matches.filter(m => m.result === 'Ganador' || m.result === 'BYE').length;
+    const wr = matchCount > 0 ? Math.round((wins / matchCount) * 100) : 0;
+
+    // Async icon fetch — rendered via attribute, updated after DOM insertion
+    const deckKeyword = t.deck_name.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
+    const iconSrc = pokemonIconCache[deckKeyword] || POKEBALL_URL;
+
+    return `
+    <div class="tournament-card" data-tour-id="${t.id}" data-deck-keyword="${escHtml(deckKeyword)}">
+      <div class="t-card-header">
+        <div class="t-card-icon t-card-icon-poke" id="t-card-poke-${t.id}"><img src="${iconSrc}" alt="${escHtml(t.deck_name)}" /></div>
+        <div class="t-card-header-text">
+          <div class="t-card-title">${escHtml(t.name)}</div>
+          <div class="t-card-deck">
+            <span class="deck-indicator">🎴</span> ${escHtml(t.deck_name)}
+          </div>
+        </div>
+        <button class="t-card-delete-btn" data-tour-id="${t.id}" title="Eliminar torneo">🗑️</button>
+      </div>
+      <div class="t-card-body">
+        <div class="t-card-stats-grid">
+          <div class="t-card-stat">
+            <span class="stat-number">${totalPoints}</span>
+            <span class="stat-label">Puntos</span>
+          </div>
+          <div class="t-card-stat">
+            <span class="stat-number">${matchCount}</span>
+            <span class="stat-label">Batallas</span>
+          </div>
+          <div class="t-card-stat">
+            <span class="stat-number">${wr}%</span>
+            <span class="stat-label">WR</span>
+          </div>
+        </div>
+      </div>
+      <div class="t-card-footer">
+        <span class="t-card-date">📅 ${date}</span>
+        <span class="t-card-format font-badge">${t.format}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.tournament-card').forEach(card => {
+    card.addEventListener('click', () => {
+      location.hash = `#tournament/${card.dataset.tourId}`;
+    });
+    // Async update Pokémon icon after render
+    const keyword = card.dataset.deckKeyword;
+    const iconEl = card.querySelector('.t-card-icon-poke img');
+    if (keyword && iconEl) {
+      getPokemonIcon(keyword).then(url => { iconEl.src = url; });
+    }
+  });
+
+  // Bind deletion listeners to cards
+  grid.querySelectorAll('.t-card-delete-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tourId = btn.dataset.tourId;
+      showDeleteConfirmModal('¿Estás seguro de que deseas eliminar este torneo y todas sus batallas registradas?', async () => {
+        try {
+          await deleteTournament(currentUser.id, tourId);
+          showToast('Torneo eliminado con éxito', 'success');
+        } catch (err) {
+          console.error('Error deleting tournament:', err);
+          showToast('Error al eliminar el torneo', 'error');
+        }
+      });
+    });
+  });
+}
+
+async function loadTournamentDetailPage(tourId) {
+  const header = $('tournament-detail-header-info');
+  const table = $('match-table-body');
+  if (!header || !table || !tourId) return;
+
+  header.innerHTML = `<div class="loading-spinner"></div>`;
+  table.innerHTML = `<tr><td colspan="5" style="text-align:center"><div class="loading-spinner"></div></td></tr>`;
+
+  try {
+    const tour = await getTournament(currentUser.id, tourId);
+    if (!tour) {
+      showToast('Torneo no encontrado', 'error');
+      location.hash = '#tournaments';
+      return;
+    }
+
+    renderTournamentDetailHeader(tour);
+
+    // Bind delete tournament in detail header
+    const btnDeleteTour = $('btn-delete-tournament');
+    if (btnDeleteTour) {
+      btnDeleteTour.onclick = () => {
+        showDeleteConfirmModal('¿Estás seguro de que deseas eliminar este torneo y todas sus batallas registradas?', async () => {
+          try {
+            await deleteTournament(currentUser.id, tourId);
+            showToast('Torneo eliminado con éxito', 'success');
+            location.hash = '#tournaments';
+          } catch (err) {
+            console.error('Error deleting tournament:', err);
+            showToast('Error al eliminar el torneo', 'error');
+          }
+        });
+      };
+    }
+
+    activeSubscriptions.matches = subscribeToTournamentMatches(tourId, (matches) => {
+      renderMatchesTable(matches);
+
+      const totalPoints = matches.reduce((acc, m) => acc + (m.points || 0), 0);
+      const matchCount = matches.length;
+      const wins = matches.filter(m => m.result === 'Ganador' || m.result === 'BYE').length;
+      const wr = matchCount > 0 ? Math.round((wins / matchCount) * 100) : 0;
+
+      const pointsEl = $('t-detail-points');
+      const countEl = $('t-detail-count');
+      const wrEl = $('t-detail-wr');
+
+      if (pointsEl) pointsEl.textContent = totalPoints;
+      if (countEl) countEl.textContent = matchCount;
+      if (wrEl) wrEl.textContent = `${wr}%`;
+    });
+
+  } catch (err) {
+    console.error('Error loading tournament detail:', err);
+    showToast('Error al cargar detalle del torneo', 'error');
+  }
+}
+
+function renderTournamentDetailHeader(t) {
+  const header = $('tournament-detail-header-info');
+  const date = new Date(t.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // Show a default Pokéball icon, then load the custom one asynchronously
+  const deckKeyword = t.deck_name.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
+  const iconSrc = pokemonIconCache[deckKeyword] || POKEBALL_URL;
+
+  header.innerHTML = `
+    <div class="t-detail-info">
+      <div class="t-detail-name">${escHtml(t.name)}</div>
+      <div class="t-detail-meta" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          Mazo: 
+          <img class="detail-header-poke-icon" src="${iconSrc}" alt="" style="width:24px;height:24px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;" />
+          <strong>${escHtml(t.deck_name)}</strong>
+        </span>
+        <span>Fecha: <strong>${date}</strong></span>
+        <span>Formato: <strong>${t.format}</strong></span>
+      </div>
+    </div>
+    <div class="t-detail-stats">
+      <div class="t-stat-item">
+        <div class="t-stat-val" id="t-detail-points">0</div>
+        <div class="t-stat-label">Puntos</div>
+      </div>
+      <div class="t-stat-item">
+        <div class="t-stat-val" id="t-detail-count">0</div>
+        <div class="t-stat-label">Batallas</div>
+      </div>
+      <div class="t-stat-item">
+        <div class="t-stat-val" id="t-detail-wr">0%</div>
+        <div class="t-stat-label">WR %</div>
+      </div>
+    </div>
+  `;
+
+  // Fetch the actual Pokémon icon and update the img src
+  getPokemonIcon(t.deck_name).then(url => {
+    const img = header.querySelector('.detail-header-poke-icon');
+    if (img) img.src = url;
+  });
+}
+
+async function renderMatchesTable(matches) {
+  const table = $('match-table-body');
+  if (!matches.length) {
+    table.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-faint); padding: 40px;">No hay batallas registradas aún.</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = matches.map((m, idx) => {
+    let resClass = 'res-draw';
+    if (m.result === 'Ganador') resClass = 'res-win';
+    if (m.result === 'Perdedor') resClass = 'res-loss';
+    if (m.result === 'BYE') resClass = 'res-bye';
+
+    const isBye = m.result === 'BYE';
+    const opponentDisplay = isBye
+      ? `<span class="deck-name-cell" style="display:inline-flex;align-items:center;gap:6px;">
+           <img class="match-row-poke-icon" src="${POKEBALL_URL}" alt="" style="width:24px;height:24px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;" />
+           -
+         </span>`
+      : `<span class="deck-name-cell" style="display:inline-flex;align-items:center;gap:6px;">
+           <img class="match-row-poke-icon" data-deck="${escHtml(m.opponent_deck)}"
+                src="${POKEBALL_URL}" alt="" style="width:24px;height:24px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;" />
+           ${escHtml(m.opponent_deck)}
+         </span>`;
+
+    return `
+    <tr class="match-row">
+      <td>Ronda ${idx + 1}</td>
+      <td>${opponentDisplay}</td>
+      <td><span class="res-pill ${resClass}">${m.result}</span></td>
+      <td><span class="points-pill">+${m.points} pts</span></td>
+      <td style="text-align: center;">
+        <button class="btn-delete-match animate-pulse-btn" data-match-id="${m.id}" title="Eliminar batalla">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Async update: fetch Pokémon icons for each opponent deck
+  table.querySelectorAll('.match-row-poke-icon').forEach(img => {
+    const deck = img.dataset.deck;
+    if (deck) getPokemonIcon(deck).then(url => { img.src = url; });
+  });
+
+  // Bind match deletion
+  table.querySelectorAll('.btn-delete-match').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showDeleteConfirmModal('¿Estás seguro de que deseas eliminar esta batalla?', async () => {
+        try {
+          await deleteTournamentMatch(btn.dataset.matchId);
+          showToast('Batalla eliminada con éxito', 'success');
+        } catch (err) {
+          console.error('Error deleting match:', err);
+          showToast('Error al eliminar la batalla', 'error');
+        }
+      });
+    });
+  });
+}
+
+// ─── Tournament Modals & Handlers ───
+let confirmDeleteCallback = null;
+
+function showDeleteConfirmModal(message, onConfirm) {
+  const msgEl = $('delete-confirm-message');
+  if (msgEl) msgEl.textContent = message;
+  confirmDeleteCallback = onConfirm;
+  $('delete-confirm-modal-overlay')?.classList.add('open');
+}
+
+function hideDeleteConfirmModal() {
+  $('delete-confirm-modal-overlay')?.classList.remove('open');
+  confirmDeleteCallback = null;
+}
+
+function openTournamentModal() {
+  $('tournament-form').reset();
+  $('tournament-modal-overlay').classList.add('open');
+}
+
+function closeTournamentModal() {
+  $('tournament-modal-overlay').classList.remove('open');
+}
+
+async function handleCreateTournament(e) {
+  e.preventDefault();
+  const name = $('tournament-name').value.trim();
+  const deck = $('tournament-deck').value.trim();
+  const date = $('tournament-date').value;
+  const format = $('tournament-format').value;
+
+  if (!name || !deck || !date) {
+    showToast('Por favor completa todos los campos', 'warning');
+    return;
+  }
+
+  const btn = $('btn-tournament-submit');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="loading-spinner" style="width:16px;height:16px"></div> Creando...';
+
+  try {
+    const tour = await createTournament(currentUser.id, {
+      name,
+      deck_name: deck,
+      date,
+      format
+    });
+
+    showToast('¡Torneo creado con éxito!', 'success');
+    closeTournamentModal();
+    location.hash = `#tournament/${tour.id}`;
+
+  } catch (err) {
+    console.error('Error creating tournament:', err);
+    showToast('Error al crear el torneo', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '＋ Crear torneo';
+  }
+}
+
+function openMatchModal() {
+  $('match-form').reset();
+  // Restore opponent deck input in case it was hidden by BYE selection
+  const opponentGroup = $('match-opponent-deck')?.closest('.form-group');
+  if (opponentGroup) opponentGroup.style.display = '';
+  const icon = $('match-opponent-deck-icon');
+  if (icon) icon.src = POKEBALL_URL;
+  $('match-modal-overlay').classList.add('open');
+}
+
+function closeMatchModal() {
+  $('match-modal-overlay').classList.remove('open');
+}
+
+async function handleCreateMatch(e) {
+  e.preventDefault();
+  const opponentDeck = $('match-opponent-deck')?.value.trim() || '';
+  const result = $('match-result').value;
+  const tourId = location.hash.split('/')[1];
+
+  const isBye = result === 'BYE';
+  if ((!isBye && !opponentDeck) || !result || !tourId) {
+    showToast('Por favor completa todos los campos', 'warning');
+    return;
+  }
+
+  const btn = $('btn-match-submit');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="loading-spinner" style="width:16px;height:16px"></div> Registrando...';
+
+  try {
+    await addTournamentMatch(currentUser.id, {
+      tournament_id: tourId,
+      opponent_deck: opponentDeck,
+      result
+    });
+
+    showToast('¡Batalla registrada!', 'success');
+    closeMatchModal();
+
+  } catch (err) {
+    console.error('Error adding match:', err);
+    showToast('Error al registrar la batalla', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⚔️ Registrar batalla';
+  }
+}
 async function loadDeckDetailPage(deckId) {
   const container = $('deck-detail-content');
   if (!container || !deckId) return;
