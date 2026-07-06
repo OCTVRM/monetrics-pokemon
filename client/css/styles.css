@@ -3104,6 +3104,10 @@ textarea.form-input {
 
 /* ── ≤768px — Navbar collapse ──────────────────────────────────────────── */
 @media (max-width: 768px) {
+  .navbar {
+    z-index: 150;
+  }
+
   .navbar-hamburger {
     display: flex;
   }
@@ -3138,11 +3142,17 @@ textarea.form-input {
 
   /* Show nav links inside drawer */
   .navbar-actions.mobile-open>.nav-link {
-    display: flex !important;
+    display: flex;
     padding: 14px 20px;
     font-size: 15px;
     border-radius: 0;
     border-bottom: 1px solid var(--border-muted);
+  }
+
+  /* Hide top-level duplicates for auth users (they are inside user-dropdown) */
+  .navbar-actions.mobile-open>#nav-decks,
+  .navbar-actions.mobile-open>#nav-tournaments {
+    display: none !important;
   }
 
   /* Guest & auth action groups in drawer */
