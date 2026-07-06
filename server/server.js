@@ -21,11 +21,13 @@ app.use(express.json());
 app.use('/api/cards', cardsRouter);
 app.use('/api/config', configRouter);
 
-// ─── Serve Frontend ───────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, '..', 'client')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
-});
+// ─── Serve Frontend (LOCAL DEV ONLY — Vercel serves static files via CDN) ─────
+if (process.env.VERCEL !== '1') {
+  app.use(express.static(path.join(__dirname, '..', 'client')));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
+  });
+}
 
 // ─── Global Error Handler ─────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
@@ -33,7 +35,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 Monetrics Pokemon Server running on http://localhost:${PORT}`);
-  console.log(`   API: http://localhost:${PORT}/api/cards/search?q=Charizard`);
-});
+// ─── Start server (local dev) ─────────────────────────────────────────────────
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log(`\n🚀 Monetrics Pokemon Server running on http://localhost:${PORT}`);
+    console.log(`   API: http://localhost:${PORT}/api/cards/search?q=Charizard`);
+  });
+}
+
+// ─── Export for Vercel Serverless ─────────────────────────────────────────────
+module.exports = app;
+
