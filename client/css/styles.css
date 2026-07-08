@@ -3105,57 +3105,92 @@ textarea.form-input {
 /* ── ≤768px — Navbar collapse ──────────────────────────────────────────── */
 @media (max-width: 768px) {
   .navbar {
-    z-index: 150;
+    z-index: 200;
   }
 
   .navbar-hamburger {
     display: flex;
   }
 
-  /* Hide individual top-level text nav-links from desktop bar */
-  .navbar-actions>.nav-link {
-    display: none !important;
-  }
-
-  /* Show the actions panel as a slide-down drawer */
+  /* ── Drawer panel: HIDDEN by default ─────────────────────────────────── */
   .navbar-actions {
+    display: none !important;
     position: fixed;
     top: 0;
-    right: -100%;
-    width: min(320px, 88vw);
+    right: 0;
+    width: min(320px, 85vw);
     height: 100dvh;
     background: var(--card);
     border-left: 1px solid var(--border);
     flex-direction: column;
     align-items: stretch;
-    gap: 4px;
+    gap: 0;
     padding: 0 0 24px;
-    z-index: 150;
+    z-index: 201;
     overflow-y: auto;
-    transition: right 0.3s ease;
     box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
   }
 
+  /* ── Drawer panel: VISIBLE when open ─────────────────────────────────── */
   .navbar-actions.mobile-open {
-    right: 0;
+    display: flex !important;
   }
 
-  /* Show nav links inside drawer */
-  .navbar-actions.mobile-open>.nav-link {
+  /* ── Close button row at top ─────────────────────────────────────────── */
+  .navbar-mobile-close-row {
     display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .navbar-mobile-close {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 18px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+
+  .navbar-mobile-close:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+
+  /* ── Nav links inside drawer ─────────────────────────────────────────── */
+  .navbar-actions.mobile-open>.nav-link {
+    display: flex !important;
     padding: 14px 20px;
     font-size: 15px;
     border-radius: 0;
     border-bottom: 1px solid var(--border-muted);
+    color: var(--text-muted);
   }
 
-  /* Hide top-level duplicates for auth users (they are inside user-dropdown) */
+  .navbar-actions.mobile-open>.nav-link:hover {
+    color: var(--text);
+    background: var(--card-hover);
+  }
+
+  /* Hide nav-decks and nav-tournaments top-level (they exist in user-dropdown) */
   .navbar-actions.mobile-open>#nav-decks,
   .navbar-actions.mobile-open>#nav-tournaments {
     display: none !important;
   }
 
-  /* Guest & auth action groups in drawer */
+  /* ── Guest actions (login / register) ────────────────────────────────── */
   .navbar-actions.mobile-open #guest-actions {
     padding: 16px 20px;
     flex-direction: column;
@@ -3165,10 +3200,11 @@ textarea.form-input {
   .navbar-actions.mobile-open #guest-actions .btn {
     width: 100%;
     justify-content: center;
-    padding: 10px 16px;
+    padding: 12px 16px;
     font-size: 14px;
   }
 
+  /* ── Cart toggle and Chat inside drawer ──────────────────────────────── */
   .navbar-actions.mobile-open #btn-cart-toggle {
     display: flex !important;
     width: 100%;
@@ -3198,19 +3234,22 @@ textarea.form-input {
     border-bottom: 1px solid var(--border-muted);
   }
 
-  /* Hide close row in drawer (hamburger acts as close trigger already) */
-  .navbar-mobile-close-row {
-    display: none !important;
-  }
-
-  /* Move user menu into drawer properly */
+  /* ── User menu inside drawer ─────────────────────────────────────────── */
   .navbar-actions .user-menu {
     padding: 0;
   }
 
+  .navbar-actions .user-avatar-btn {
+    display: none;
+  }
+
+  .navbar-actions .user-info {
+    display: none;
+  }
+
   .navbar-actions .user-dropdown {
     position: static;
-    display: block !important;
+    display: block;
     box-shadow: none;
     border: none;
     background: none;
@@ -3219,7 +3258,7 @@ textarea.form-input {
     animation: none;
   }
 
-  .navbar-actions.mobile-open .user-dropdown .dropdown-item {
+  .navbar-actions .user-dropdown .dropdown-item {
     display: flex;
     padding: 14px 20px;
     font-size: 15px;
@@ -3232,29 +3271,20 @@ textarea.form-input {
     justify-content: flex-start;
   }
 
-  .navbar-actions.mobile-open .user-dropdown .dropdown-item:hover {
+  .navbar-actions .user-dropdown .dropdown-item:hover {
     color: var(--text);
     background: var(--card-hover);
   }
 
-  .navbar-actions.mobile-open .user-dropdown .dropdown-item.danger {
+  .navbar-actions .user-dropdown .dropdown-item.danger {
     color: var(--danger);
   }
 
-  .navbar-actions .user-info {
-    display: none;
-  }
-
-  .navbar-actions .user-avatar-btn {
-    display: none;
-  }
-
-  /* Main content */
+  /* ── Main content adjustments ────────────────────────────────────────── */
   .main-content {
     padding: 16px;
   }
 
-  /* Section header stacks on mobile */
   .section-header {
     gap: 10px;
   }
