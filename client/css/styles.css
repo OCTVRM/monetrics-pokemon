@@ -3102,6 +3102,11 @@ textarea.form-input {
   display: block;
 }
 
+/* Labels only visible in mobile drawer */
+.mobile-nav-label {
+  display: none;
+}
+
 /* ── ≤768px — Navbar collapse ──────────────────────────────────────────── */
 @media (max-width: 768px) {
   .navbar {
@@ -3232,6 +3237,11 @@ textarea.form-input {
     font-size: 15px;
     border-radius: 0;
     border-bottom: 1px solid var(--border-muted);
+  }
+
+  /* Show text labels for cart/chat in mobile drawer */
+  .navbar-actions.mobile-open .mobile-nav-label {
+    display: inline;
   }
 
   /* ── User menu inside drawer ─────────────────────────────────────────── */
