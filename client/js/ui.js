@@ -898,12 +898,15 @@ function renderTournamentsGrid(tours) {
           statsMap[key] = {
             name: m.opponent_deck.trim(),
             wins: 0,
+            losses: 0,
             total: 0
           };
         }
         statsMap[key].total++;
         if (m.result === 'Ganador') {
           statsMap[key].wins++;
+        } else if (m.result === 'Perdedor') {
+          statsMap[key].losses++;
         }
       });
 
@@ -913,12 +916,14 @@ function renderTournamentsGrid(tours) {
       });
 
       const bestList = [...statsList].sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
         if (b.winRate !== a.winRate) return b.winRate - a.winRate;
         return b.total - a.total;
       });
       const best = bestList[0];
 
       const worstList = [...statsList].sort((a, b) => {
+        if (b.losses !== a.losses) return b.losses - a.losses;
         if (a.winRate !== b.winRate) return a.winRate - b.winRate;
         return b.total - a.total;
       });
