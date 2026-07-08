@@ -39,7 +39,7 @@
               Comunitario</span></button>
           <button class="nav-link" id="nav-store" onclick="location.hash='#store'">🛒 Tienda</button>
           <button class="nav-link" id="nav-decks" style="display:none">📦 Mis Barajas</button>
-          <button class="nav-link" id="nav-tournaments" style="display:none" onclick="location.hash='#tournaments'">🏆
+          <button class="nav-link" id="nav-tournament" style="display:none" onclick="location.hash='#tournaments'">🏆
             Registro de torneos</button>
 
           <!-- Guest actions -->
@@ -58,7 +58,7 @@
             🛒 <span class="mobile-nav-label">Carrito de compras</span><span class="cart-count"
               id="cart-count-badge">0</span>
           </button>
-          <div class="user-menu">
+          <div class="user-menu" id="user-actions">
             <button class="user-avatar-btn" id="user-avatar-btn" aria-label="Menú de usuario">👤</button>
             <div class="user-dropdown" id="user-dropdown">
               <div class="user-info">
@@ -154,6 +154,7 @@
           <div>
             <div class="section-title">🏆 Registro de Torneos</div>
             <div class="section-subtitle">Lleva el control de tu desempeño competitivo</div>
+            <div id="tournament-pokemon-stats"></div>
           </div>
           <button class="btn btn-primary" id="btn-create-tournament">＋ Nuevo torneo</button>
         </div>
@@ -814,14 +815,30 @@
               style="position: absolute; left: 10px; width: 24px; height: 24px; pointer-events: none;" />
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="match-result">Resultado *</label>
-          <select class="form-input" id="match-result" required>
-            <option value="Ganador">Ganador</option>
-            <option value="Perdedor">Perdedor</option>
-            <option value="Empate">Empate</option>
-            <option value="BYE">BYE</option>
-          </select>
+        <!-- Toggle to flag BYE for BO3/BO5 -->
+        <div class="form-group" id="match-is-bye-group"
+          style="display: none; align-items: center; gap: 8px; margin-bottom: 16px;">
+          <input type="checkbox" id="match-is-bye" style="width: 18px; height: 18px; margin: 0; cursor: pointer;" />
+          <label for="match-is-bye" style="cursor: pointer; user-select: none; font-weight: 500; font-size: 0.9rem;">¿Es
+            un BYE? (Victoria directa sin rival)</label>
+        </div>
+
+        <div id="match-dynamic-rounds-container">
+          <div class="form-group" id="match-result-simple-group">
+            <label class="form-label" for="match-result">Resultado *</label>
+            <select class="form-input" id="match-result" required>
+              <option value="Ganador">Ganador</option>
+              <option value="Perdedor">Perdedor</option>
+              <option value="Empate">Empate</option>
+              <option value="BYE">BYE</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="match-calculated-summary"
+          style="display: none; padding: 12px; background: var(--bg-card, #222); border-radius: 6px; border: 1px solid var(--border-muted, #444); margin-bottom: 16px; font-size: 0.9rem; align-items: center; gap: 6px;">
+          <span>Resultado calculado de la batalla:</span> <strong id="calculated-result-text"
+            style="color: var(--primary, #00f);">-</strong>
         </div>
         <div class="modal-footer" style="padding: 1rem 0 0 0; border: none">
           <button type="button" class="btn btn-outline" id="match-modal-cancel">Cancelar</button>

@@ -38,6 +38,7 @@ let activeSubscriptions = {}; // Track Firebase onSnapshot listeners for cleanup
 let allMarketListings = []; // Market state for client-side filtering
 let allStoreProducts = [];   // Store state for product detail
 let userProfilesCache = {}; // Cache for seller profiles to avoid redundant fetches
+let activeTournamentFormat = 'BO1'; // Track active tournament format ('BO1', 'BO3', 'BO5')
 
 // ─── PokéAPI Icon Helper ────────────────────────────────────────────────────────
 const pokemonIconCache = {}; // name -> sprite URL
@@ -871,6 +872,80 @@ async function loadTournamentsPage() {
 }
 
 function renderTournamentsGrid(tours) {
+  const statsContainer = $('tournament-pokemon-stats');
+  const allMatches = [];
+  tours.forEach(t => {
+    if (t.tournament_matches) {
+      allMatches.push(...t.tournament_matches);
+    }
+  });
+
+  const validMatches = allMatches.filter(m => m.opponent_deck && m.opponent_deck !== '-');
+
+  if (statsContainer) {
+    if (validMatches.length === 0) {
+      statsContainer.innerHTML = `
+        <div class="stats-matchups-grid" style="display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; width: 100%;">
+          <div style="background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.15); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px; width: 100%;">
+            <span>📊</span> Registra batallas en tus torneos para ver estadísticas de desempeño contra otros Pokémon.
+          </div>
+        </div>`;
+    } else {
+      const statsMap = {};
+      validMatches.forEach(m => {
+        const key = m.opponent_deck.trim().toLowerCase();
+        if (!statsMap[key]) {
+          statsMap[key] = {
+            name: m.opponent_deck.trim(),
+            wins: 0,
+            total: 0
+          };
+        }
+        statsMap[key].total++;
+        if (m.result === 'Ganador') {
+          statsMap[key].wins++;
+        }
+      });
+
+      const statsList = Object.values(statsMap);
+      statsList.forEach(item => {
+        item.winRate = Math.round((item.wins / item.total) * 100);
+      });
+
+      const bestList = [...statsList].sort((a, b) => {
+        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+        return b.total - a.total;
+      });
+      const best = bestList[0];
+
+      const worstList = [...statsList].sort((a, b) => {
+        if (a.winRate !== b.winRate) return a.winRate - b.winRate;
+        return b.total - a.total;
+      });
+      const worst = worstList[0];
+
+      statsContainer.innerHTML = `
+        <div class="stats-matchups-grid" style="display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; width: 100%;">
+          <div class="stat-matchup-card best-matchup" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; gap: 12px; min-width: 250px; flex: 1;">
+            <div style="font-size: 24px;">📈</div>
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; color: #10b981;">Mejor Desempeño</div>
+              <div style="font-size: 1.1rem; font-weight: 700; margin: 2px 0; color: #fff;">${escHtml(best.name)}</div>
+              <div style="font-size: 0.8rem; opacity: 0.8; color: var(--text-muted);">${best.winRate}% victorias (${best.total} ${best.total === 1 ? 'partida' : 'partidas'})</div>
+            </div>
+          </div>
+          <div class="stat-matchup-card worst-matchup" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; gap: 12px; min-width: 250px; flex: 1;">
+            <div style="font-size: 24px;">📉</div>
+            <div>
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; color: #ef4444;">Peor Desempeño</div>
+              <div style="font-size: 1.1rem; font-weight: 700; margin: 2px 0; color: #fff;">${escHtml(worst.name)}</div>
+              <div style="font-size: 0.8rem; opacity: 0.8; color: var(--text-muted);">${worst.winRate}% victorias (${worst.total} ${worst.total === 1 ? 'partida' : 'partidas'})</div>
+            </div>
+          </div>
+        </div>`;
+    }
+  }
+
   const grid = $('tournaments-grid');
   if (!tours.length) {
     grid.innerHTML = `
@@ -977,6 +1052,7 @@ async function loadTournamentDetailPage(tourId) {
       return;
     }
 
+    activeTournamentFormat = tour.format || 'BO1';
     renderTournamentDetailHeader(tour);
 
     // Bind delete tournament in detail header
@@ -1088,11 +1164,23 @@ async function renderMatchesTable(matches) {
            ${escHtml(m.opponent_deck)}
          </span>`;
 
+    let roundsSubtext = '';
+    if (m.round_results && m.round_results.length > 0) {
+      const g = m.round_results.filter(r => r === 'Ganador').length;
+      const p = m.round_results.filter(r => r === 'Perdedor').length;
+      const e = m.round_results.filter(r => r === 'Empate').length;
+      const roundLetters = m.round_results.map(r => r === 'Ganador' ? 'G' : (r === 'Perdedor' ? 'P' : 'E')).join(', ');
+      roundsSubtext = `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; font-weight:500;">Peleas: ${roundLetters} (${g}G - ${p}P${e > 0 ? ` - ${e}E` : ''})</div>`;
+    }
+
     return `
     <tr class="match-row">
       <td>Ronda ${idx + 1}</td>
       <td>${opponentDisplay}</td>
-      <td><span class="res-pill ${resClass}">${m.result}</span></td>
+      <td>
+        <span class="res-pill ${resClass}">${m.result}</span>
+        ${roundsSubtext}
+      </td>
       <td><span class="points-pill">+${m.points} pts</span></td>
       <td style="text-align: center;">
         <button class="btn-delete-match animate-pulse-btn" data-match-id="${m.id}" title="Eliminar batalla">🗑️</button>
@@ -1183,13 +1271,158 @@ async function handleCreateTournament(e) {
   }
 }
 
+function recalculateRoundsSummary() {
+  const selects = document.querySelectorAll('.round-select');
+  let wins = 0;
+  let losses = 0;
+  let draws = 0;
+  let allSelected = true;
+
+  selects.forEach(sel => {
+    if (!sel.value) {
+      allSelected = false;
+    } else if (sel.value === 'Ganador') {
+      wins++;
+    } else if (sel.value === 'Perdedor') {
+      losses++;
+    } else if (sel.value === 'Empate') {
+      draws++;
+    }
+  });
+
+  const summaryDiv = $('match-calculated-summary');
+  const textEl = $('calculated-result-text');
+
+  if (!allSelected) {
+    if (summaryDiv) summaryDiv.style.display = 'none';
+    return;
+  }
+
+  let finalResult = 'Empate';
+  let finalColor = 'var(--text)';
+  if (wins > losses) {
+    finalResult = 'Ganador';
+    finalColor = '#2ea44f';
+  } else if (losses > wins) {
+    finalResult = 'Perdedor';
+    finalColor = '#cf222e';
+  } else {
+    finalResult = 'Empate';
+    finalColor = '#d29922';
+  }
+
+  if (textEl) {
+    textEl.textContent = `${finalResult} (${wins}-${losses}-${draws})`;
+    textEl.style.color = finalColor;
+  }
+  if (summaryDiv) {
+    summaryDiv.style.display = 'flex';
+  }
+}
+
+function setupMatchModalInputs() {
+  const isByeGroup = $('match-is-bye-group');
+  const isByeCheckbox = $('match-is-bye');
+  const dynamicContainer = $('match-dynamic-rounds-container');
+  const summaryDiv = $('match-calculated-summary');
+
+  if (isByeGroup) isByeGroup.style.display = 'none';
+  if (isByeCheckbox) isByeCheckbox.checked = false;
+  if (summaryDiv) summaryDiv.style.display = 'none';
+
+  if (activeTournamentFormat === 'BO1') {
+    dynamicContainer.innerHTML = `
+      <div class="form-group" id="match-result-simple-group">
+        <label class="form-label" for="match-result">Resultado *</label>
+        <select class="form-input" id="match-result" required>
+          <option value="Ganador">Ganador</option>
+          <option value="Perdedor">Perdedor</option>
+          <option value="Empate">Empate</option>
+          <option value="BYE">BYE</option>
+        </select>
+      </div>
+    `;
+
+    // Bind clean listener for BO1 BYE toggle
+    $('match-result')?.addEventListener('change', () => {
+      const isBye = $('match-result')?.value === 'BYE';
+      const opponentGroup = $('match-opponent-deck')?.closest('.form-group');
+      if (opponentGroup) opponentGroup.style.display = isBye ? 'none' : '';
+      if (isBye) {
+        $('match-opponent-deck').value = '';
+        $('match-opponent-deck-icon').src = POKEBALL_URL;
+      }
+    });
+
+  } else {
+    // BO3 or BO5 format
+    if (isByeGroup) isByeGroup.style.display = 'flex';
+
+    const numRounds = activeTournamentFormat === 'BO3' ? 3 : 5;
+    let roundsHtml = `
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;" id="rounds-selection-wrapper">
+        <label class="form-label" style="margin-bottom: 4px;">Detalle de Rondas / Peleas *</label>
+        <div style="display: grid; grid-template-columns: repeat(${numRounds}, 1fr); gap: 10px;" id="rounds-grid">
+    `;
+
+    for (let i = 1; i <= numRounds; i++) {
+      roundsHtml += `
+        <div class="form-group" style="margin: 0;">
+          <label class="form-label" style="font-size: 0.75rem; font-weight: 500; text-align: center; display: block; margin-bottom: 4px;">Pelea ${i}</label>
+          <select class="form-input round-select" data-round="${i}" required style="padding: 6px 4px; font-size: 0.8rem; height: 36px; border-radius: 4px; text-align: center;">
+            <option value="" disabled selected>-</option>
+            <option value="Ganador">G</option>
+            <option value="Perdedor">P</option>
+            <option value="Empate">E</option>
+          </select>
+        </div>
+      `;
+    }
+
+    roundsHtml += `
+        </div>
+      </div>
+    `;
+
+    dynamicContainer.innerHTML = roundsHtml;
+
+    // Listen to changes on round selects
+    const selects = dynamicContainer.querySelectorAll('.round-select');
+    selects.forEach(sel => {
+      sel.addEventListener('change', recalculateRoundsSummary);
+    });
+
+    // Listen to BYE checkbox toggle
+    if (isByeCheckbox) {
+      isByeCheckbox.onchange = () => {
+        const isBye = isByeCheckbox.checked;
+        const opponentGroup = $('match-opponent-deck')?.closest('.form-group');
+        const roundsWrapper = $('rounds-selection-wrapper');
+
+        if (opponentGroup) opponentGroup.style.display = isBye ? 'none' : '';
+        if (roundsWrapper) roundsWrapper.style.display = isBye ? 'none' : 'flex';
+
+        if (isBye) {
+          $('match-opponent-deck').value = '';
+          $('match-opponent-deck-icon').src = POKEBALL_URL;
+          if (summaryDiv) summaryDiv.style.display = 'none';
+        } else {
+          recalculateRoundsSummary();
+        }
+      };
+    }
+  }
+}
+
 function openMatchModal() {
   $('match-form').reset();
-  // Restore opponent deck input in case it was hidden by BYE selection
   const opponentGroup = $('match-opponent-deck')?.closest('.form-group');
   if (opponentGroup) opponentGroup.style.display = '';
   const icon = $('match-opponent-deck-icon');
   if (icon) icon.src = POKEBALL_URL;
+
+  setupMatchModalInputs();
+
   $('match-modal-overlay').classList.add('open');
 }
 
@@ -1200,13 +1433,54 @@ function closeMatchModal() {
 async function handleCreateMatch(e) {
   e.preventDefault();
   const opponentDeck = $('match-opponent-deck')?.value.trim() || '';
-  const result = $('match-result').value;
   const tourId = location.hash.split('/')[1];
+  if (!tourId) return;
 
-  const isBye = result === 'BYE';
-  if ((!isBye && !opponentDeck) || !result || !tourId) {
-    showToast('Por favor completa todos los campos', 'warning');
-    return;
+  let result = null;
+  let roundResults = null;
+
+  if (activeTournamentFormat === 'BO1') {
+    result = $('match-result')?.value;
+    const isBye = result === 'BYE';
+    if ((!isBye && !opponentDeck) || !result) {
+      showToast('Por favor completa todos los campos', 'warning');
+      return;
+    }
+  } else {
+    const isBye = $('match-is-bye')?.checked;
+    if (isBye) {
+      result = 'BYE';
+      roundResults = null;
+    } else {
+      if (!opponentDeck) {
+        showToast('Por favor ingresa el mazo del oponente', 'warning');
+        return;
+      }
+
+      const selects = document.querySelectorAll('.round-select');
+      const rounds = [];
+      let wins = 0;
+      let losses = 0;
+      let missing = false;
+
+      selects.forEach(sel => {
+        if (!sel.value) {
+          missing = true;
+        } else {
+          rounds.push(sel.value);
+          if (sel.value === 'Ganador') wins++;
+          if (sel.value === 'Perdedor') losses++;
+        }
+      });
+
+      if (missing) {
+        showToast('Por favor ingresa el resultado de todas las peleas', 'warning');
+        return;
+      }
+
+      roundResults = rounds;
+      result = wins > losses ? 'Ganador' : (losses > wins ? 'Perdedor' : 'Empate');
+    }
   }
 
   const btn = $('btn-match-submit');
@@ -1216,8 +1490,9 @@ async function handleCreateMatch(e) {
   try {
     await addTournamentMatch(currentUser.id, {
       tournament_id: tourId,
-      opponent_deck: opponentDeck,
-      result
+      opponent_deck: result === 'BYE' ? '-' : opponentDeck,
+      result,
+      round_results: roundResults
     });
 
     showToast('¡Batalla registrada!', 'success');

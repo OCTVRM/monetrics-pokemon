@@ -33,7 +33,8 @@ export async function getUserTournaments(uid) {
             tournament_matches (
                 id,
                 result,
-                points
+                points,
+                opponent_deck
             )
         `)
         .eq('user_id', uid)
@@ -71,7 +72,7 @@ export async function deleteTournament(uid, tournamentId) {
 /**
  * Add a match to a tournament.
  */
-export async function addTournamentMatch(uid, { tournament_id, opponent_deck, result }) {
+export async function addTournamentMatch(uid, { tournament_id, opponent_deck, result, round_results }) {
     // Result points: Ganador (3), Perdedor (0), Empate (1), BYE (3)
     const points = (result === 'Ganador' || result === 'BYE') ? 3 : (result === 'Empate' ? 1 : 0);
     const opponent = result === 'BYE' ? '-' : opponent_deck.trim();
@@ -82,7 +83,8 @@ export async function addTournamentMatch(uid, { tournament_id, opponent_deck, re
             tournament_id,
             opponent_deck: opponent,
             result,
-            points
+            points,
+            round_results: round_results || null
         })
         .select('id')
         .single();
