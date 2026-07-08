@@ -3171,53 +3171,41 @@ textarea.form-input {
 
   .navbar-actions.mobile-open #btn-cart-toggle {
     display: flex !important;
-    margin: 4px 20px;
-    width: calc(100% - 40px);
-    justify-content: center;
+    width: 100%;
+    margin: 0;
+    padding: 14px 20px;
+    font-size: 15px;
+    font-weight: 500;
+    justify-content: flex-start;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-muted);
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .navbar-actions.mobile-open #btn-cart-toggle:hover {
+    color: var(--text);
+    background: var(--card-hover);
   }
 
   .navbar-actions.mobile-open #nav-chat {
     display: flex !important;
+    width: 100%;
     padding: 14px 20px;
     font-size: 15px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-muted);
   }
 
-  /* Show close row in drawer */
+  /* Hide close row in drawer (hamburger acts as close trigger already) */
   .navbar-mobile-close-row {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-
-  .navbar-mobile-close {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: 16px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-  }
-
-  .navbar-mobile-close:hover {
-    color: var(--danger);
-    border-color: var(--danger);
+    display: none !important;
   }
 
   /* Move user menu into drawer properly */
   .navbar-actions .user-menu {
-    padding: 8px 20px;
+    padding: 0;
   }
 
   .navbar-actions .user-dropdown {
@@ -3229,6 +3217,28 @@ textarea.form-input {
     width: 100%;
     padding: 0;
     animation: none;
+  }
+
+  .navbar-actions.mobile-open .user-dropdown .dropdown-item {
+    display: flex;
+    padding: 14px 20px;
+    font-size: 15px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-muted);
+    background: transparent;
+    color: var(--text-muted);
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  .navbar-actions.mobile-open .user-dropdown .dropdown-item:hover {
+    color: var(--text);
+    background: var(--card-hover);
+  }
+
+  .navbar-actions.mobile-open .user-dropdown .dropdown-item.danger {
+    color: var(--danger);
   }
 
   .navbar-actions .user-info {
