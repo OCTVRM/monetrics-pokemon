@@ -70,6 +70,24 @@ export async function deleteTournament(uid, tournamentId) {
 }
 
 /**
+ * Update a tournament's standing.
+ */
+export async function updateTournamentStanding(uid, tournamentId, rank, players) {
+    const { data, error } = await supabase
+        .from('tournaments')
+        .update({
+            standing_rank: rank,
+            standing_players: players
+        })
+        .eq('id', tournamentId)
+        .eq('user_id', uid)
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+/**
  * Add a match to a tournament.
  */
 export async function addTournamentMatch(uid, { tournament_id, opponent_deck, result, round_results }) {

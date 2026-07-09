@@ -848,6 +848,31 @@
     </div>
   </div>
 
+  <!-- ── EDIT STANDING MODAL ────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="standing-modal-overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="standing-modal-title" style="max-width: 400px;">
+      <div class="modal-header">
+        <span class="modal-title" id="standing-modal-title">🏆 Posición Final (Standing)</span>
+        <button class="modal-close" id="standing-modal-close" aria-label="Cerrar">×</button>
+      </div>
+      <form class="modal-body" id="standing-form" novalidate>
+        <div class="form-group">
+          <label class="form-label" for="standing-rank">Puesto Obtenido *</label>
+          <input class="form-input" type="number" id="standing-rank" placeholder="Ej: 3" required min="1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="standing-players">Cantidad de Jugadores *</label>
+          <input class="form-input" type="number" id="standing-players" placeholder="Ej: 24" required min="1" />
+        </div>
+        <div class="modal-footer" style="padding: 1rem 0 0 0; border: none; display: flex; gap: 12px;">
+          <button type="button" class="btn btn-outline" id="standing-modal-cancel" style="flex: 1;">Cancelar</button>
+          <button type="submit" id="btn-standing-submit" class="btn btn-primary" style="flex: 1;">Guardar
+            Posición</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ── DELETE CONFIRMATION MODAL ─────────────────────────────────────────── -->
   <div class="modal-overlay" id="delete-confirm-modal-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-modal-title"

@@ -23,7 +23,8 @@ import {
 import {
   createTournament, getUserTournaments, getTournament,
   addTournamentMatch, deleteTournament, deleteTournamentMatch,
-  subscribeToUserTournaments, subscribeToTournamentMatches
+  subscribeToUserTournaments, subscribeToTournamentMatches,
+  updateTournamentStanding
 } from './tournaments.js';
 import { submitReview, getUserReviews } from './reviews.js';
 import { store } from './store.js';
@@ -1004,9 +1005,12 @@ function renderTournamentsGrid(tours) {
           </div>
         </div>
       </div>
-      <div class="t-card-footer">
+      <div class="t-card-footer" style="display:flex; justify-content:space-between; align-items:center;">
         <span class="t-card-date">📅 ${date}</span>
-        <span class="t-card-format font-badge">${t.format}</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          ${t.standing_rank ? `<span class="t-card-standing" style="color:#fbbf24; font-size:0.8rem; font-weight:500; display:inline-flex; align-items:center; gap:4px;">🏆 ${t.standing_rank}°${t.standing_players ? ` / ${t.standing_players}` : ''}</span>` : ''}
+          <span class="t-card-format font-badge">${t.format}</span>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1060,6 +1064,13 @@ async function loadTournamentDetailPage(tourId) {
     activeTournamentFormat = tour.format || 'BO1';
     renderTournamentDetailHeader(tour);
 
+    const standingCard = $('t-detail-standing-card');
+    if (standingCard) {
+      standingCard.onclick = () => {
+        openStandingModal(tour);
+      };
+    }
+
     // Bind delete tournament in detail header
     const btnDeleteTour = $('btn-delete-tournament');
     if (btnDeleteTour) {
@@ -1108,6 +1119,10 @@ function renderTournamentDetailHeader(t) {
   const deckKeyword = t.deck_name.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
   const iconSrc = pokemonIconCache[deckKeyword] || POKEBALL_URL;
 
+  const rankVal = t.standing_rank ? `${t.standing_rank}°` : '-';
+  const playersVal = t.standing_players ? ` / ${t.standing_players}` : '';
+  const standingValHTML = t.standing_rank ? `${rankVal}<span style="font-size:0.85rem; opacity:0.75; font-weight:normal;">${playersVal}</span>` : '-';
+
   header.innerHTML = `
     <div class="t-detail-info">
       <div class="t-detail-name">${escHtml(t.name)}</div>
@@ -1134,6 +1149,10 @@ function renderTournamentDetailHeader(t) {
         <div class="t-stat-val" id="t-detail-wr">0%</div>
         <div class="t-stat-label">WR %</div>
       </div>
+      <div class="t-stat-item" id="t-detail-standing-card" style="cursor:pointer;" title="Registrar/Editar posición final">
+        <div class="t-stat-val" id="t-detail-standing" style="color:#fbbf24;">${standingValHTML}</div>
+        <div class="t-stat-label">🏆 Standing</div>
+      </div>
     </div>
   `;
 
@@ -1142,6 +1161,73 @@ function renderTournamentDetailHeader(t) {
     const img = header.querySelector('.detail-header-poke-icon');
     if (img) img.src = url;
   });
+}
+
+function openStandingModal(tour) {
+  const modal = $('standing-modal-overlay');
+  const form = $('standing-form');
+  if (!modal || !form) return;
+
+  // Pre-fill fields
+  $('standing-rank').value = tour.standing_rank || '';
+  $('standing-players').value = tour.standing_players || '';
+
+  modal.classList.add('open');
+
+  // Cancel buttons
+  const hide = () => { modal.classList.remove('open'); };
+  $('standing-modal-close').onclick = hide;
+  $('standing-modal-cancel').onclick = hide;
+
+  // Handle form submission
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const rank = parseInt($('standing-rank').value) || null;
+    const players = parseInt($('standing-players').value) || null;
+
+    if (rank !== null && rank <= 0) {
+      showToast('El puesto debe ser un número entero mayor a 0', 'warning');
+      return;
+    }
+    if (players !== null && players <= 0) {
+      showToast('La cantidad de jugadores debe ser mayor a 0', 'warning');
+      return;
+    }
+    if (rank !== null && players !== null && rank > players) {
+      showToast('El puesto no puede ser mayor al número de jugadores', 'warning');
+      return;
+    }
+
+    const btnSubmit = $('btn-standing-submit');
+    const origText = btnSubmit.innerHTML;
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<div class="loading-spinner" style="width:16px;height:16px;margin:0 auto;"></div>';
+
+    try {
+      await updateTournamentStanding(currentUser.id, tour.id, rank, players);
+      showToast('Posición guardada con éxito', 'success');
+      hide();
+
+      // Update in-memory state and re-render header
+      tour.standing_rank = rank;
+      tour.standing_players = players;
+      renderTournamentDetailHeader(tour);
+
+      // Re-bind click listener on the new card
+      const standingCard = $('t-detail-standing-card');
+      if (standingCard) {
+        standingCard.onclick = () => {
+          openStandingModal(tour);
+        };
+      }
+    } catch (err) {
+      console.error('Error updating standing:', err);
+      showToast('Error al guardar la posición', 'error');
+    } finally {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = origText;
+    }
+  };
 }
 
 async function renderMatchesTable(matches) {
