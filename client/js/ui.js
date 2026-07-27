@@ -47,23 +47,68 @@ const POKEBALL_URL = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/s
 
 async function getPokemonIcon(deckName) {
   if (!deckName || !deckName.trim()) return POKEBALL_URL;
-  // Take the first word as potential Pokémon name
-  const keyword = deckName.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
-  if (!keyword) return POKEBALL_URL;
-  if (pokemonIconCache[keyword]) return pokemonIconCache[keyword];
-  try {
-    const resp = await fetch(`https://pokeapi.co/api/v2/pokemon/${keyword}`, { signal: AbortSignal.timeout(4000) });
-    if (!resp.ok) throw new Error('not found');
-    const data = await resp.json();
-    const url = data.sprites?.versions?.['generation-viii']?.icons?.front_default
-      || data.sprites?.front_default
-      || POKEBALL_URL;
-    pokemonIconCache[keyword] = url;
-    return url;
-  } catch {
-    pokemonIconCache[keyword] = POKEBALL_URL;
-    return POKEBALL_URL;
+
+  // Normalise: lowercase, keep only a-z 0-9 spaces and hyphens
+  const raw = deckName.trim().toLowerCase().replace(/[^a-z0-9\s\-]/g, '').replace(/\s+/g, ' ').trim();
+  if (!raw) return POKEBALL_URL;
+
+  // Quick cache hit on the raw input
+  if (pokemonIconCache[raw]) return pokemonIconCache[raw];
+
+  // TCG suffixes & prefixes that don't exist in PokéAPI
+  const TCG_SUFFIXES = /\b(ex|gx|vmax|vstar|v|lv\s*x|break|prime|legend|radiant)\b/g;
+  const TCG_PREFIXES = /\b(mega|m|alolan|galarian|hisuian|paldean|shadow|primal|origin)\b/g;
+
+  // Build ordered list of candidate keywords to try
+  const candidates = [];
+  const addCandidate = (s) => {
+    const c = s.replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (c && !candidates.includes(c)) candidates.push(c);
+  };
+
+  // 1) Full name hyphenated (e.g. mega-lucario-ex)
+  addCandidate(raw);
+
+  // 2) Strip TCG suffixes (e.g. mega-lucario)
+  const noSuffix = raw.replace(TCG_SUFFIXES, '').trim();
+  if (noSuffix) addCandidate(noSuffix);
+
+  // 3) Strip TCG prefixes from the no-suffix version (e.g. lucario)
+  const noPrefix = noSuffix.replace(TCG_PREFIXES, '').trim();
+  if (noPrefix) addCandidate(noPrefix);
+
+  // 4) Also strip prefixes from the raw (in case suffix stripping ate too much)
+  const rawNoPrefix = raw.replace(TCG_PREFIXES, '').trim();
+  if (rawNoPrefix) addCandidate(rawNoPrefix);
+
+  // 5) Individual words, longest first (e.g. lucario, mega)
+  const words = raw.replace(TCG_SUFFIXES, '').replace(TCG_PREFIXES, '').trim().split(/\s+/);
+  words.sort((a, b) => b.length - a.length);
+  words.forEach(w => addCandidate(w));
+
+  // Try each candidate against PokéAPI
+  for (const kw of candidates) {
+    if (pokemonIconCache[kw] && pokemonIconCache[kw] !== POKEBALL_URL) {
+      pokemonIconCache[raw] = pokemonIconCache[kw];
+      return pokemonIconCache[kw];
+    }
+    try {
+      const resp = await fetch(`https://pokeapi.co/api/v2/pokemon/${kw}`, { signal: AbortSignal.timeout(3000) });
+      if (!resp.ok) { pokemonIconCache[kw] = POKEBALL_URL; continue; }
+      const data = await resp.json();
+      const url = data.sprites?.versions?.['generation-viii']?.icons?.front_default
+        || data.sprites?.front_default
+        || POKEBALL_URL;
+      pokemonIconCache[kw] = url;
+      pokemonIconCache[raw] = url;
+      return url;
+    } catch {
+      pokemonIconCache[kw] = POKEBALL_URL;
+    }
   }
+
+  pokemonIconCache[raw] = POKEBALL_URL;
+  return POKEBALL_URL;
 }
 
 function bindPokemonPreview(inputId, iconId) {
@@ -973,12 +1018,11 @@ function renderTournamentsGrid(tours) {
     const wins = matches.filter(m => m.result === 'Ganador' || m.result === 'BYE').length;
     const wr = matchCount > 0 ? Math.round((wins / matchCount) * 100) : 0;
 
-    // Async icon fetch — rendered via attribute, updated after DOM insertion
-    const deckKeyword = t.deck_name.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
-    const iconSrc = pokemonIconCache[deckKeyword] || POKEBALL_URL;
+    // Async icon fetch — rendered via data attribute, updated after DOM insertion
+    const iconSrc = POKEBALL_URL;
 
     return `
-    <div class="tournament-card" data-tour-id="${t.id}" data-deck-keyword="${escHtml(deckKeyword)}">
+    <div class="tournament-card" data-tour-id="${t.id}" data-deck-name="${escHtml(t.deck_name)}">
       <div class="t-card-header">
         <div class="t-card-icon t-card-icon-poke" id="t-card-poke-${t.id}"><img src="${iconSrc}" alt="${escHtml(t.deck_name)}" /></div>
         <div class="t-card-header-text">
@@ -1020,10 +1064,10 @@ function renderTournamentsGrid(tours) {
       location.hash = `#tournament/${card.dataset.tourId}`;
     });
     // Async update Pokémon icon after render
-    const keyword = card.dataset.deckKeyword;
+    const deckName = card.dataset.deckName;
     const iconEl = card.querySelector('.t-card-icon-poke img');
-    if (keyword && iconEl) {
-      getPokemonIcon(keyword).then(url => { iconEl.src = url; });
+    if (deckName && iconEl) {
+      getPokemonIcon(deckName).then(url => { iconEl.src = url; });
     }
   });
 
@@ -1116,8 +1160,7 @@ function renderTournamentDetailHeader(t) {
   const date = new Date(t.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
 
   // Show a default Pokéball icon, then load the custom one asynchronously
-  const deckKeyword = t.deck_name.trim().toLowerCase().split(/[\s,]/)[0].replace(/[^a-z0-9\-]/g, '');
-  const iconSrc = pokemonIconCache[deckKeyword] || POKEBALL_URL;
+  const iconSrc = POKEBALL_URL;
 
   const rankVal = t.standing_rank ? `${t.standing_rank}°` : '-';
   const playersVal = t.standing_players ? ` / ${t.standing_players}` : '';
